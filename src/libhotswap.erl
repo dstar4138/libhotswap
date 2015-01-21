@@ -78,21 +78,43 @@ get_ast( {Module, _, _} = MFA ) -> ok;
              end);
          Error -> Error
     end; 
-get_ast( Erl ) -> libhotswap_util:term_to_ast( Erl ).
+get_ast( Erl ) when is_function( Erl ) -> libhotswap_util:fun_to_ast( Erl ).
 
 
 %% ===========================================================================
 %% Module Manipulation
 %% ===========================================================================
 
--spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
-add_export( MFA, Func ) -> ok.
 
+%% @doc Add a new function to a module and load it back into memory.
+-spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
+add_export( {Module,Fun,Arity}=MFA, Func ) ->
+    {ok, AST} = libhotswap_util:funcs( Func ),
+    {ok, ModuleAST} = libhotswap_util:get_beam( Module ),
+    Export = [{attribute, 1, export, [{Fun, Arity}]}],
+    NewModule = libhotswap_util:inject_attributes( Export, ModuleAST++AST ),
+    reload( MFA, NewModule ).
+
+%% @doc Remove a function which has been exported from the module. This not
+%%   only makes it unexported, it will also delete the function code.
+%% @end
 -spec remove_export( mfa() ) -> {ok, vsn()} | {error, term()}.
-remove_export( MFA ) -> ok.
+remove_export( {Module,F,A}=MFA ) ->
+    {ok, ModuleAST} = libhotswap_util:get_beam( Module ),
+    {Top, [Ex|Btm]} = lists:splitwith( find_attr(F,A), ModuleAST ),
+    {BTop,[_F|Bbm]} = lists:splitwith( find_func(F,A), Btm ),
+    {attribute, Line, export, Exs} = Ex,
+    CleanExs = lists:delete( {F,A}, Exs ),
+    NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
+    reload( MFA, NewModule ).
 
 -spec rewrite( mfa(), func() ) -> {ok, vsn()} | {error, term()}.
-rewrite( MFA, Func ) -> ok.
+rewrite( {Module,F,A}=MFA, Func ) -> 
+    {ok, FunctnAST} = libhotswap_util:funcs( Func ),
+    {ok, ModuleAST} = libhotswap_util:get_beam( Module ),
+    {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
+    {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
+    reload( MFA, Top++Bbm++CleanFAST ).
 
 
 %% ===========================================================================
@@ -100,8 +122,40 @@ rewrite( MFA, Func ) -> ok.
 %% ===========================================================================
 
 -spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | {error, term()}.
-inject_in_function( MFA, Func, Pattern ) -> ok.
+inject_in_function( MFA, Func, Pattern ) -> ok. 
 
 -spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} | {error, term()}.
 add_new_clause( MFA, Func, Order ) -> ok.
 
+
+%%% ============
+%%% Private
+%%% ============
+
+%% @private
+%% @doc Returns an AST splitter which attempts to find the exported MFA. 
+find_attr( Fun, Attr ) -> 
+    fun( {attribute, _Line, export, Exs} ) -> not lists:member({Fun,Attr}, Exs);
+       ( _ ) -> true
+    end.
+
+%% @private
+%% @doc Returns an AST splitter which attempts to find the function by MFA.
+find_func( Fun, Attr ) ->
+    fun( {function,_Line,F,A,_} ) when F=:=Fun andalso A=:=Attr -> false;
+       ( _ ) -> true
+    end.
+
+%% @private
+%% @doc Generate a function AST given a possible 'fun' AST. In otherwords, name
+%%   the function.
+%% @end
+generate_function_from_func( F, A, [{'fun',Line,Clauses}] ) ->
+    {ok, [{function,Line,F,A,Clauses}]};
+generate_function_from_func( F, A, [{function,Line,_F,A,Clauses}] ) ->
+    {ok, [{function,Line,F,A,Clauses}]};
+generate_function_from_func( _, _, _ ) ->
+    {error, badarg}.
+
+%% Load a new version of a module (MFA) given a new AST.
+reload( MFA, AST ) -> ok.
