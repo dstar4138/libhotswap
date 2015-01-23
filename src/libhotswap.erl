@@ -55,9 +55,14 @@ exports( ModuleName ) when is_atom( ModuleName )  ->
 
 %% @doc Get the Raw Erlang code from a loaded BEAM module. This is useful if
 %%   you want to do RegEx replacements before a `rewrite/2`, e.g. replace all
-%%   calls to `modulev1` to `modulev2`.
+%%   calls to `modulev1` to `modulev2`. NOTE: if the Fun() is a closure (i.e.
+%%   variables are referenced which are created external to the Fun() itself
+%%   then this function will return an error.
 %% @end
--spec get_code( mfa() | term() ) -> {ok, string()} | {error, term()}. 
+-spec get_code( mfa() | fun() ) -> {ok, string()} | {error, Error}
+            when Error :: 'badarg'    | % term is not an mfa/fun.
+                          'missing'   | % mfa() could not be found.
+                          'outofscope'. % fun() has a non-empty reference env.
 get_code( Term ) -> 
     case get_ast( Term ) of
         {ok, AST} -> libhotswap_util:ast_to_code( AST );
@@ -68,7 +73,12 @@ get_code( Term ) ->
 %%   if you want to do more advanced analysis before a `rewrite/2`, e.g. 
 %%   reordering case statements.
 %% @end
--spec get_ast( mfa() | term() ) -> {ok, ast()} | {error, term()}.
+-spec get_ast( mfa() | term() ) -> {ok, FnAST} | {error, Error}
+            when Error :: 'badarg'    | % term is not an mfa/fun.
+                          'missing'   | % mfa() could not be found.
+                          'outofscope', % fun() has a non-empty reference env.
+                 FnAST :: {'fun',1,_}         | % unnamed function (i.e. fun()).
+                          {'function',_,_,_,_}. % named function (i.e. mfa()). 
 get_ast( {Module, _, _} = MFA ) -> 
     case libhotswap_util:get_beam( Module ) of
         {ok, BEAM} ->
@@ -90,7 +100,8 @@ get_ast( Erl ) when is_function( Erl ) -> libhotswap_util:fun_to_ast( Erl ).
 -spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
 add_export( {Module,Fun,Arity}=MFA, Func ) ->
     {ok, AST} = libhotswap_util:funcs( Func ),
-    {ok, ModuleAST} = libhotswap_util:get_beam( Module ),
+    {ok, ModuleBeam} = libhotswap_util:get_beam( Module ),
+    {ok, ModuleAST}  = libhotswap_util:beam_to_ast( ModuleBeam ),
     Export = [{attribute, 1, export, [{Fun, Arity}]}],
     NewModule = libhotswap_util:inject_attributes( Export, ModuleAST++AST ),
     reload( MFA, NewModule ).
@@ -100,7 +111,8 @@ add_export( {Module,Fun,Arity}=MFA, Func ) ->
 %% @end
 -spec remove_export( mfa() ) -> {ok, vsn()} | {error, term()}.
 remove_export( {Module,F,A}=MFA ) ->
-    {ok, ModuleAST} = libhotswap_util:get_beam( Module ),
+    {ok, ModuleBeam} = libhotswap_util:get_beam( Module ),
+    {ok, ModuleAST}  = libhotswap_util:beam_to_ast( ModuleBeam ),
     {Top, [Ex|Btm]} = lists:splitwith( find_attr(F,A), ModuleAST ),
     {BTop,[_F|Bbm]} = lists:splitwith( find_func(F,A), Btm ),
     {attribute, Line, export, Exs} = Ex,
@@ -111,7 +123,8 @@ remove_export( {Module,F,A}=MFA ) ->
 -spec rewrite( mfa(), func() ) -> {ok, vsn()} | {error, term()}.
 rewrite( {Module,F,A}=MFA, Func ) -> 
     {ok, FunctnAST} = libhotswap_util:funcs( Func ),
-    {ok, ModuleAST} = libhotswap_util:get_beam( Module ),
+    {ok, ModuleBeam} = libhotswap_util:get_beam( Module ),
+    {ok, ModuleAST}  = libhotswap_util:beam_to_ast( ModuleBeam ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
     {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
     reload( MFA, Top++Bbm++CleanFAST ).
@@ -158,4 +171,5 @@ generate_function_from_func( _, _, _ ) ->
     {error, badarg}.
 
 %% Load a new version of a module (MFA) given a new AST.
+-spec reload( mfa(), ast() ) -> {ok, vsn()} | {error, atom()}.
 reload( MFA, AST ) -> ok.

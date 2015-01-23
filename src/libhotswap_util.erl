@@ -51,7 +51,7 @@ beam_to_ast( Binary ) when is_binary( Binary ) ->
 %%   for comparisons or to convert known Erlang source into something the 
 %%   compiler can work with during injection.
 %% @end
--spec fun_to_ast( term() ) -> {ok, ast()} | {error, badarg | outofscope}.
+-spec fun_to_ast( fun() ) -> {ok, ast()} | {error, badarg | outofscope}.
 fun_to_ast( Fun ) -> 
     {env, Tree} = erlang:fun_info( Fun, env ),
     {Env,_Eval,_Val,AST} = lists:last( Tree ),
