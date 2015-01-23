@@ -1,0 +1,10 @@
+{application, libhotswap,
+    [
+        {description, "Utility Library to aid in Self-Modifying Code."},
+        {vsn,"0.1"},
+        {registered, []},
+        {applications, [code]},
+%        {mod, {libhotswap,[]}},
+        {env, []}
+    ]
+}.

@@ -69,7 +69,7 @@ get_code( Term ) ->
 %%   reordering case statements.
 %% @end
 -spec get_ast( mfa() | term() ) -> {ok, ast()} | {error, term()}.
-get_ast( {Module, _, _} = MFA ) -> ok;
+get_ast( {Module, _, _} = MFA ) -> 
     case libhotswap_util:get_beam( Module ) of
         {ok, BEAM} ->
             (case libhotswap_util:beam_to_ast( BEAM ) of
