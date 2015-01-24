@@ -1,6 +1,7 @@
 -module(libhotswap).
 
 -include("libhotswap.hrl").
+-define(FAKE_PATH, "libhotswap_fake_path_warning").
 
 -export([vsn/1,version/1,exports/1]).
 -export([get_code/1,get_ast/1]).
@@ -97,7 +98,7 @@ add_export( {Module,Fun,Arity}=MFA, Func ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     Export = [{attribute, 1, export, [{Fun, Arity}]}],
     NewModule = libhotswap_util:inject_attributes( Export, ModuleAST++[AST] ),
-    reload( MFA, NewModule ).
+    reload( MFA, NewModule, false ).
 
 %% @doc Remove a function which has been exported from the module. This not
 %%   only makes it unexported, it will also delete the function code.
@@ -110,7 +111,7 @@ remove_export( {Module,F,A}=MFA ) ->
     {attribute, Line, export, Exs} = Ex,
     CleanExs = lists:delete( {F,A}, Exs ),
     NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
-    reload( MFA, NewModule ).
+    reload( MFA, NewModule, false ).
 
 %% @doc Given a func and an MFA, overwrite the MFA with the provided Func.
 %%   This will completely overload the function and reload the module. Be
@@ -122,7 +123,7 @@ rewrite( {Module,F,A}=MFA, Func ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
     {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
-    reload( MFA, Top++Bbm++CleanFAST ).
+    reload( MFA, Top++Bbm++CleanFAST, false ).
 
 %% ===========================================================================
 %% Specialized functionality
@@ -141,25 +142,46 @@ rewrite( {Module,F,A}=MFA, Func ) ->
 %% @end
 -spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | 
                                                         {error, term()}.
-inject_in_function( MFA, Func, Pattern ) -> 
+inject_in_function( {Module,Fun,Arity}=MFA, Func, Pattern ) -> 
     {ok, FuncAST} = libhotswap_util:funcs( Func ),
     case verify_func_arity( 0, FuncAST ) of
         error -> {error,badarity};
         ok    ->
-            %TODO: find MFA, inject based on pattern.
-            ok
+            {ok, BodyAST}   = get_ast_body_exprs( FuncAST ),
+            {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
+            Splitter = find_func(Fun,Arity),
+            {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
+            case pattern_inject( FunAST, BodyAST, Pattern ) of
+                {ok, NewFunAST} -> reload( MFA, Top++[NewFunAST|Btm], false );
+                Error -> Error
+            end
     end.
 
 %% @doc
 %%   NOTE: This is very specialized functionality for inclusion in the EMP
 %%   application.
 %%
-%%   Given an MFA, 
-%%
+%%   Given an MFA, and a Func of the same arity, insert the Func's clauses at
+%%   the index position given by the Order. Note this may cause unreachable
+%%   code if done incorrectly, such as inserting a match-all case at the 
+%%   beginning of the clause structure.
 %% @end
--spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} | {error, term()}.
-add_new_clause( MFA, Func, Order ) -> ok.
-
+-spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} | 
+                                                            {error, term()}.
+add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) -> 
+    {ok, FuncAST} = libhotswap_util:funcs( Func ),
+    case verify_func_arity( Arity, FuncAST ) of
+        error -> {error,badarity};
+        ok    -> 
+            {ok, Clauses}   = get_ast_body_clauses( FuncAST ),
+            {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
+            Splitter = find_func(Fun,Arity),
+            {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
+            case order_inject( FunAST, Clauses, Order ) of
+                {ok, NewFunAST} -> reload( MFA, Top++[NewFunAST|Btm], false );
+                Error -> Error
+            end
+    end.
 
 %%% ============
 %%% Private
@@ -201,6 +223,52 @@ verify_func_arity( Arity, {'fun',_,[{clause,_,Args,_,_}|_]} )
 verify_func_arity( Arity, {function,_,_,Arity,_} ) -> ok;
 verify_func_arity( _, _ ) -> error.
 
-%% Load a new version of a module (MFA) given a new AST.
--spec reload( mfa(), ast() ) -> {ok, vsn()} | {error, atom()}.
-reload( MFA, AST ) -> ok.
+%% @private
+%% @doc Pull out the Expression list from a func. This is used to inject the
+%%   func's functionality into another function. Think aspect based programming.
+%% @end
+get_ast_body_exprs( {'fun',_,{clauses,[{clause,_,[],Exprs}]}} ) -> {ok, Exprs};
+get_ast_body_exprs( {'function',_,_,0,[{clause,_,[],Exprs}]} )  -> {ok, Exprs};
+get_ast_body_exprs( _ ) -> {error, badarg}.
+
+%% @private
+%% @doc Pull out the clauses ffrom a Func, for possible insertion into another
+%%   function.
+%% @end
+get_ast_body_clauses( {'fun',_,{clauses,Clauses}} ) -> {ok, Clauses};
+get_ast_body_clauses( {'function',_,_,_,Clauses} )  -> {ok, Clauses};
+get_ast_body_clauses( _ ) -> {error, badarg}.
+
+%% @private
+%% @doc Load a new version of a module (MFA) given a new AST. This might be
+%%   ripe for improvement (such as with an ondisk cache of all updated 
+%%   versions for easy rollback or analysis.
+%% @end
+-spec reload( mfa(), ast(), boolean() ) -> {ok, vsn()} | {error, atom()}.
+reload( {Module,_,_}, AST, HardPurge ) -> 
+    {ok, NewBinary} = libhotswap_util:ast_to_beam( AST ),
+    PurgeResult = case HardPurge of
+                     true ->code:purge( Module );
+                     false -> code:soft_purge( Module )
+                  end,
+    case PurgeResult of
+        false -> {error, purge};
+        true  -> 
+            (case code:load_binary( Module, ?FAKE_PATH, NewBinary ) of
+                {module,_} -> {ok, vsn( Module )};
+                Error      -> Error
+             end)
+    end.  
+
+
+%% @private
+%% @doc Given a function AST and a set of AST expressions, inject them into the 
+%%   the function given a pattern.
+%% @end
+pattern_inject( FunctionAST, Exprs, Pattern ) -> {ok, FunctionAST}.
+
+%% @private 
+%% @doc Given a function AST and a set of AST clauses, inject them via the index
+%%   provided by the Order.
+order_inject( FunctionAST, Clauses, Order ) -> {ok, FunctionAST}.
+

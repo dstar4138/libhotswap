@@ -12,6 +12,7 @@
            code_to_ast/1,
            funcs/1,
            ast_to_code/1,
+           ast_to_beam/1,
            ast_by_mfa/2, ast_by_mfa/1,
            inject_attributes/2
          ] ).
@@ -108,6 +109,19 @@ ast_to_code( AST ) ->
         String = erl_prettypr:format( Forms ),
         {ok, String}
     catch _:_ -> {error, badarg} end.
+
+%% @doc Given some Abstract Syntax Tree (for a whole module), get the BEAM
+%%   code for it. This is used on our reloading for calls to 
+%%   code:load_binary/3, etc. This is really for verbosity and completness 
+%%   sake.
+%% @end
+ast_to_beam( AST ) ->
+    case compile:forms( AST ) of
+        {ok,_Module,BEAM} -> {ok, BEAM};
+        {ok,_Module,BEAM,_Warnings} -> {ok, BEAM};
+        error -> {error, badarg};
+        {error,E,_W} -> {error,E}
+    end.
 
 %% @doc Given an AST, return the AST for just the function described by the
 %%   MFA. It assumes the AST is for the correct moduel. This is used by the 
