@@ -73,22 +73,16 @@ get_code( Term ) ->
 %%   if you want to do more advanced analysis before a `rewrite/2`, e.g. 
 %%   reordering case statements.
 %% @end
--spec get_ast( mfa() | term() ) -> {ok, FnAST} | {error, Error}
+-spec get_ast( mfa() | term() ) -> {ok, ast()} | {error, Error}
             when Error :: 'badarg'    | % term is not an mfa/fun.
                           'missing'   | % mfa() could not be found.
-                          'outofscope', % fun() has a non-empty reference env.
-                 FnAST :: {'fun',1,_}         | % unnamed function (i.e. fun()).
-                          {'function',_,_,_,_}. % named function (i.e. mfa()). 
+                          'outofscope'. % fun() has a non-empty reference env.
 get_ast( {Module, _, _} = MFA ) -> 
-    case libhotswap_util:get_beam( Module ) of
-        {ok, BEAM} ->
-            (case libhotswap_util:beam_to_ast( BEAM ) of
-                 {ok, AST} -> libhotswap_util:ast_by_mfa( AST, MFA );
-                 Error     -> Error
-             end);
-         Error -> Error
+    case libhotswap_util:get_ast( Module ) of
+        {ok, AST} -> libhotswap_util:ast_by_mfa( AST, MFA );
+        Error -> Error
     end; 
-get_ast( Erl ) when is_function( Erl ) -> libhotswap_util:fun_to_ast( Erl ).
+get_ast( ErlOrCode ) -> libhotswap_util:funcs( ErlOrCode ).
 
 
 %% ===========================================================================
@@ -100,10 +94,9 @@ get_ast( Erl ) when is_function( Erl ) -> libhotswap_util:fun_to_ast( Erl ).
 -spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
 add_export( {Module,Fun,Arity}=MFA, Func ) ->
     {ok, AST} = libhotswap_util:funcs( Func ),
-    {ok, ModuleBeam} = libhotswap_util:get_beam( Module ),
-    {ok, ModuleAST}  = libhotswap_util:beam_to_ast( ModuleBeam ),
+    {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     Export = [{attribute, 1, export, [{Fun, Arity}]}],
-    NewModule = libhotswap_util:inject_attributes( Export, ModuleAST++AST ),
+    NewModule = libhotswap_util:inject_attributes( Export, ModuleAST++[AST] ),
     reload( MFA, NewModule ).
 
 %% @doc Remove a function which has been exported from the module. This not
@@ -111,8 +104,7 @@ add_export( {Module,Fun,Arity}=MFA, Func ) ->
 %% @end
 -spec remove_export( mfa() ) -> {ok, vsn()} | {error, term()}.
 remove_export( {Module,F,A}=MFA ) ->
-    {ok, ModuleBeam} = libhotswap_util:get_beam( Module ),
-    {ok, ModuleAST}  = libhotswap_util:beam_to_ast( ModuleBeam ),
+    {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [Ex|Btm]} = lists:splitwith( find_attr(F,A), ModuleAST ),
     {BTop,[_F|Bbm]} = lists:splitwith( find_func(F,A), Btm ),
     {attribute, Line, export, Exs} = Ex,
@@ -120,23 +112,51 @@ remove_export( {Module,F,A}=MFA ) ->
     NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
     reload( MFA, NewModule ).
 
+%% @doc Given a func and an MFA, overwrite the MFA with the provided Func.
+%%   This will completely overload the function and reload the module. Be
+%%   very careful doing this to stdlib functions.
+%% @end
 -spec rewrite( mfa(), func() ) -> {ok, vsn()} | {error, term()}.
 rewrite( {Module,F,A}=MFA, Func ) -> 
     {ok, FunctnAST} = libhotswap_util:funcs( Func ),
-    {ok, ModuleBeam} = libhotswap_util:get_beam( Module ),
-    {ok, ModuleAST}  = libhotswap_util:beam_to_ast( ModuleBeam ),
+    {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
     {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
     reload( MFA, Top++Bbm++CleanFAST ).
-
 
 %% ===========================================================================
 %% Specialized functionality
 %% ===========================================================================
 
--spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | {error, term()}.
-inject_in_function( MFA, Func, Pattern ) -> ok. 
+%% @doc 
+%%   NOTE: This is very specialized functionality for inclusion in the EMP
+%%   application. 
+%%
+%%   Given a reference MFA, add the body of Func to it according to a
+%%   provided pattern. Namely, how far down the expression list for which 
+%%   of the functions clauses. For example; if the pattern was: {2, all}
+%%   the result would be to add the body of Func after the second line of
+%%   all clauses in MFA. If the pattern is {'end', [3,5]}, it will add the
+%%   body of Func at the end of the third and fifth clauses of MFA.
+%% @end
+-spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | 
+                                                        {error, term()}.
+inject_in_function( MFA, Func, Pattern ) -> 
+    {ok, FuncAST} = libhotswap_util:funcs( Func ),
+    case verify_func_arity( 0, FuncAST ) of
+        error -> {error,badarity};
+        ok    ->
+            %TODO: find MFA, inject based on pattern.
+            ok
+    end.
 
+%% @doc
+%%   NOTE: This is very specialized functionality for inclusion in the EMP
+%%   application.
+%%
+%%   Given an MFA, 
+%%
+%% @end
 -spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} | {error, term()}.
 add_new_clause( MFA, Func, Order ) -> ok.
 
@@ -161,14 +181,25 @@ find_func( Fun, Attr ) ->
 
 %% @private
 %% @doc Generate a function AST given a possible 'fun' AST. In otherwords, name
-%%   the function.
+%%   the function. This assumes you are passing in valid function names (atom)
+%%   and valid arity for the described clauses.
 %% @end
-generate_function_from_func( F, A, [{'fun',Line,Clauses}] ) ->
-    {ok, [{function,Line,F,A,Clauses}]};
-generate_function_from_func( F, A, [{function,Line,_F,A,Clauses}] ) ->
+generate_function_from_func( F, A, {'fun',Line,Clauses}=Fun ) ->
+    case verify_func_arity( A, Fun ) of
+        ok -> {ok, [{function,Line,F,A,Clauses}]};
+        Error -> Error
+    end;
+generate_function_from_func( F, A, {function,Line,_F,A,Clauses} ) ->
     {ok, [{function,Line,F,A,Clauses}]};
 generate_function_from_func( _, _, _ ) ->
     {error, badarg}.
+
+%% @private 
+%% @doc Check the provided func to see if it is indeed the correct arity. 
+verify_func_arity( Arity, {'fun',_,[{clause,_,Args,_,_}|_]} ) 
+                         when length(Args)=:=Arity -> ok;
+verify_func_arity( Arity, {function,_,_,Arity,_} ) -> ok;
+verify_func_arity( _, _ ) -> error.
 
 %% Load a new version of a module (MFA) given a new AST.
 -spec reload( mfa(), ast() ) -> {ok, vsn()} | {error, atom()}.

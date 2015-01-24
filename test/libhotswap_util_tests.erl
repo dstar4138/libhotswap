@@ -13,11 +13,12 @@ check_unsticky2_test_() ->
                 ]})
     }.
 
-get_beam1_test_() ->
+get_ast1_test_() ->
     {"Verify we are getting the correct/newest loaded BEAM binaries for"
      "any given queried module.",
         ?SETUP({inparallel,
-                [ fun validate_correctModule__get_beam1/0
+                [ fun validate_correctModule__get_beam1/0,
+                  fun validate_badInput__get_beam1/0
                 ]})
     }.
 
@@ -56,16 +57,6 @@ validate_locallibs__check_unsticky2() ->
     ?assertEqual( false, code:is_sticky( MODULE ) ),
     ?assertEqual( ok,    FUN( MODULE, true ) ),
     ?assertEqual( false, code:is_sticky( MODULE ) ).
-
-
-%% TEST - Validate that we are able to attach to code server and pull object 
-%%         code correctly.
-validate_correctModule__get_beam1() ->
-    FUN = fun libhotswap_util:get_beam/1,
-    MOD = libhotswap,
-    {RESULT, BEAM} = FUN( MOD ),
-    ?assertMatch( ok, RESULT ),
-    ?assert( is_binary( BEAM ) ).
 
 
 %% ===========================================================================
