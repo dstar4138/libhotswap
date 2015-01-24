@@ -1,32 +1,40 @@
 %%% libhotswap - Utility Module
 %%%
-%%% Utility functionality for type conversions and Abstract Syntax Tree 
-%%% modification.
+%%% Deterministic utility functionality for type conversions and Parsed Abstract 
+%%% Syntax Tree modification.
 %%% 
 -module( libhotswap_util ).
-
 -include("libhotswap.hrl").
 
--export( [check_unsticky/2, funcs/1] ).
--export( [get_ast/1] ).
--export( [ast_to_code/1, ast_by_mfa/2] ).
--export( [fun_to_ast/1, code_to_ast/1] ).
--export( [inject_attributes/2] ).
+-export( [ check_unsticky/2, 
+           get_ast/1,
+           fun_to_ast/1,
+           code_to_ast/1,
+           funcs/1,
+           ast_to_code/1,
+           ast_by_mfa/2, ast_by_mfa/1,
+           inject_attributes/2
+         ] ).
 
 %% @doc Check if the module is in a sticky directory (as is the case with stdlib
 %%   modules). If it is, and you are want to force it, it'll make it unsticky 
 %%   for modification by libhotswap. This is dangerous, for very understandable 
 %%   reasons as you will have unknown nondeterministic consequences if forced.
 %% @end
--spec check_unsticky( atom(), boolean() ) -> ok | error. 
+-spec check_unsticky( atom(), boolean() ) -> ok | {error, Error}
+            when Error :: unforced | non_existing | cover_compiled | preloaded. 
 check_unsticky( Module, Force ) -> 
     case {code:is_sticky( Module ), Force} of
         {true, true} ->
-            code:unstick_dir(
-                filename:dirname( 
-                    code:which( Module )));
-        {false, _} -> ok;
-        _ -> error
+            case code:which( Module ) of
+                Error when is_atom( Error ) -> 
+                    % Possible to not exist, be loaded by cover or preloaded.
+                    % In any of these cases, we cannot unstick it's directory.
+                    {error, Error};
+                BeamFile -> code:unstick_dir( filename:dirname( BeamFile ) )
+            end;
+        {true, false} -> {error, unforced};
+        {false, _} -> ok
     end.
 
 %% @doc Get the AST for the module. It does not require the module's
@@ -44,6 +52,8 @@ get_ast( Module ) ->
 %%   compiler can work with during injection. It will also get the ast from
 %%   loaded modules if called like:
 %%                      fun_to_ast( fun io:nl/0 ).
+%%   Note however, libhotswap will not fix references in the ast to module
+%%   specific functions (i.e. unexported).
 %% @end
 -spec fun_to_ast( fun() ) -> {ok, pfunc()} | {error, badarg | outofscope}.
 fun_to_ast( Fun ) -> 
@@ -51,12 +61,16 @@ fun_to_ast( Fun ) ->
     case 
         {proplists:get_value(type,Tree), proplists:get_value(env,Tree)}
     of
-        {external, _}  -> ast_by_mfa( build_mfa_from_info(Tree) );
-        {internal, Env} ->
+        {external, _}   -> ast_by_mfa( build_mfa_from_info(Tree) );
+        {local, Env} ->
             case lists:last( Env ) of
                 {[],_,_,Clauses} -> {ok, to_fun( Clauses )};
-                _ -> % TODO: Patch AST with values defined out of function scope. 
-                    {error, outofscope}
+                %TODO: Patch AST with values defined out of function scope.
+                % This catch includes named functions, which libhotswap
+                % hasn't taken into consideration (due to possibility of adding 
+                % recursive functionality into already existing MFAs).
+                {[],_,_,_,_Name} -> {error, outofscope};
+                _                -> {error, outofscope}
             end
     end.
 
@@ -72,7 +86,7 @@ code_to_ast( Source ) ->
 %%   the fun/function it describes. Also has the side effect of verifying the 
 %%   value passed in is a function or anonymous fun. 
 %% @end.
--spec funcs( func() ) -> {ok, pfunc()} | {error, term()}.
+-spec funcs( func() | mfa() ) -> {ok, pfunc()} | {error, term()}.
 funcs( Func ) when is_function( Func ) -> fun_to_ast( Func );
 funcs( Func ) ->
     case io_lib:printable_unicode_list( Func ) of
@@ -89,8 +103,8 @@ funcs( Func ) ->
 -spec ast_to_code( ast() ) -> {ok, string()} | {error, badarg}.
 ast_to_code( AST ) ->
     try
-        ASTl = case is_list( AST ) of true -> AST; _ -> [AST] end,
-        Forms = erl_syntax:form_list( ASTl ),
+        ASTl   = case is_list( AST ) of true -> AST; _ -> [AST] end,
+        Forms  = erl_syntax:form_list( ASTl ),
         String = erl_prettypr:format( Forms ),
         {ok, String}
     catch _:_ -> {error, badarg} end.
