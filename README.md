@@ -69,7 +69,7 @@ rewrite( boolean(), mfa(), func() ) -> {ok, vsn()} | {error, term()}.
 remove_export( boolean(), mfa() ) -> {ok, vsn()} | {error, term()}.
 ```
 
-#### Get the Erlang Code (as a string), #### 
+#### Get the Erlang Code (as a string), ####
 
 Useful if you want to do RegEx replacements before a `rewrite/2`, such as to
 replace all calls to `modulev1` to `modulev2`:
@@ -94,7 +94,7 @@ version( ModuleName :: atom() ) -> string() | error.
 exports( ModuleName :: atom() ) -> [ mfa() ] | error.
 ```
 
-#### Some specialized functionality: #### 
+#### Some specialized functionality: ####
 
 To automatically update a single function by affixing, appending, or inserting
 some code into it given an function (which can have multiple clauses) based on
