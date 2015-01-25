@@ -5,3 +5,11 @@
 -type order()   :: non_neg_integer() | 'end'.
 -type pattern() :: { order(), all | [ non_neg_integer() ] }.
 
+% Server Configurations
+-type cache_config() :: { DirPath     :: file:filename(),
+                          MaxRollback :: non_neg_integer() | false
+                        }.
+-type replacement_config() :: { GlobalRPC   :: boolean(),
+                                AllowStdLib :: boolean(),
+                                DefaultPurge:: hard | soft
+                              }.

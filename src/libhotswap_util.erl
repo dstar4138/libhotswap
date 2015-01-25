@@ -151,8 +151,8 @@ ast_by_mfa( {M,_,_}=MFA ) ->
 -spec inject_attributes( [Attr], ast() ) -> {ok, ast()} | {error, badarg}
             when Attr :: {attribute, integer(), atom(), term()}.
 inject_attributes( Attributes, FullAST ) ->
-    case 
-        lists:splitwith( fun({attribute, _,_,_}) -> false; 
+    case % Split after module attribute, otherwise we'll have issues. 
+        lists:splitwith( fun({attribute,_,export,_}) -> false; 
                             (_) -> true 
                          end, FullAST )
     of

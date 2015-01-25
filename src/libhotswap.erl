@@ -97,13 +97,17 @@ add_export( {Module,Fun,Arity}=MFA, Func ) ->
     {ok, AST} = libhotswap_util:funcs( Func ),
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     Export = [{attribute, 1, export, [{Fun, Arity}]}],
-    NewModule = libhotswap_util:inject_attributes( Export, ModuleAST++[AST] ),
-    reload( MFA, NewModule, false ).
+    {ok, CleanFAST} = generate_function_from_func( Fun, Arity, AST ),
+    NewAST = add_before_eof(ModuleAST, [CleanFAST]),
+    {ok, NewModule} = libhotswap_util:inject_attributes( Export, NewAST ),
+    libhotswap_server:reload( MFA, NewModule ).
 
 %% @doc Remove a function which has been exported from the module. This not
 %%   only makes it unexported, it will also delete the function code.
 %% @end
--spec remove_export( mfa() ) -> {ok, vsn()} | {error, term()}.
+-spec remove_export( mfa() ) -> {ok, vsn()} | {error, Error}
+            when Error :: badarg | badfile | native_code | nofile | 
+                          not_purged | novsn | on_load | sticky_directory. 
 remove_export( {Module,F,A}=MFA ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [Ex|Btm]} = lists:splitwith( find_attr(F,A), ModuleAST ),
@@ -111,7 +115,7 @@ remove_export( {Module,F,A}=MFA ) ->
     {attribute, Line, export, Exs} = Ex,
     CleanExs = lists:delete( {F,A}, Exs ),
     NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
-    reload( MFA, NewModule, false ).
+    libhotswap_server:reload( MFA, NewModule ).
 
 %% @doc Given a func and an MFA, overwrite the MFA with the provided Func.
 %%   This will completely overload the function and reload the module. Be
@@ -123,7 +127,8 @@ rewrite( {Module,F,A}=MFA, Func ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
     {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
-    reload( MFA, Top++Bbm++CleanFAST, false ).
+    libhotswap_server:reload( MFA, Top++[CleanFAST|Bbm] ).
+
 
 %% ===========================================================================
 %% Specialized functionality
@@ -147,12 +152,14 @@ inject_in_function( {Module,Fun,Arity}=MFA, Func, Pattern ) ->
     case verify_func_arity( 0, FuncAST ) of
         error -> {error,badarity};
         ok    ->
+            io:format("AST:~p~n",[FuncAST]),
             {ok, BodyAST}   = get_ast_body_exprs( FuncAST ),
             {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
             Splitter = find_func(Fun,Arity),
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case pattern_inject( FunAST, BodyAST, Pattern ) of
-                {ok, NewFunAST} -> reload( MFA, Top++[NewFunAST|Btm], false );
+                {ok, NewFunAST} -> 
+                    libhotswap_server:reload( MFA, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
     end.
@@ -178,7 +185,8 @@ add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) ->
             Splitter = find_func(Fun,Arity),
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case order_inject( FunAST, Clauses, Order ) of
-                {ok, NewFunAST} -> reload( MFA, Top++[NewFunAST|Btm], false );
+                {ok, NewFunAST} -> 
+                    libhotswap_server:reload( MFA, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
     end.
@@ -202,23 +210,32 @@ find_func( Fun, Attr ) ->
     end.
 
 %% @private
+%% @doc Break off the {eof,Line} token and add this to the AST list to the end
+%%   correctly (like when we add functions to a module).
+%% @end
+add_before_eof( ModuleAST, ASTs ) ->
+    {Front,EOF} = lists:splitwith( fun({eof,_})->false;
+                                      (_)->true 
+                                   end , ModuleAST ),
+    Front++ASTs++EOF.
+
+%% @private
 %% @doc Generate a function AST given a possible 'fun' AST. In otherwords, name
 %%   the function. This assumes you are passing in valid function names (atom)
 %%   and valid arity for the described clauses.
 %% @end
-generate_function_from_func( F, A, {'fun',Line,Clauses}=Fun ) ->
+generate_function_from_func( F, A, {'fun',Line,{clauses,Clauses}}=Fun ) ->
     case verify_func_arity( A, Fun ) of
-        ok -> {ok, [{function,Line,F,A,Clauses}]};
+        ok -> {ok, {function,Line,F,A,Clauses}};
         Error -> Error
     end;
 generate_function_from_func( F, A, {function,Line,_F,A,Clauses} ) ->
-    {ok, [{function,Line,F,A,Clauses}]};
-generate_function_from_func( _, _, _ ) ->
-    {error, badarg}.
+    {ok, {function,Line,F,A,Clauses}};
+generate_function_from_func( _, _, _ ) -> {error, badarg}.
 
 %% @private 
 %% @doc Check the provided func to see if it is indeed the correct arity. 
-verify_func_arity( Arity, {'fun',_,[{clause,_,Args,_,_}|_]} ) 
+verify_func_arity( Arity, {'fun',_,{clauses,[{clause,_,Args,_,_}|_]}} ) 
                          when length(Args)=:=Arity -> ok;
 verify_func_arity( Arity, {function,_,_,Arity,_} ) -> ok;
 verify_func_arity( _, _ ) -> error.
@@ -227,8 +244,8 @@ verify_func_arity( _, _ ) -> error.
 %% @doc Pull out the Expression list from a func. This is used to inject the
 %%   func's functionality into another function. Think aspect based programming.
 %% @end
-get_ast_body_exprs( {'fun',_,{clauses,[{clause,_,[],Exprs}]}} ) -> {ok, Exprs};
-get_ast_body_exprs( {'function',_,_,0,[{clause,_,[],Exprs}]} )  -> {ok, Exprs};
+get_ast_body_exprs( {'fun',_,{clauses,[{clause,_,[],_,Exprs}]}} ) -> {ok, Exprs};
+get_ast_body_exprs( {'function',_,_,0,[{clause,_,[],Exprs}]} )    -> {ok, Exprs};
 get_ast_body_exprs( _ ) -> {error, badarg}.
 
 %% @private
@@ -240,50 +257,32 @@ get_ast_body_clauses( {'function',_,_,_,Clauses} )  -> {ok, Clauses};
 get_ast_body_clauses( _ ) -> {error, badarg}.
 
 %% @private
-%% @doc Load a new version of a module (MFA) given a new AST. This might be
-%%   ripe for improvement (such as with an ondisk cache of all updated 
-%%   versions for easy rollback or analysis.
-%% @end
--spec reload( mfa(), ast(), boolean() ) -> {ok, vsn()} | {error, atom()}.
-reload( {Module,_,_}, AST, HardPurge ) -> 
-    {ok, NewBinary} = libhotswap_util:ast_to_beam( AST ),
-    PurgeResult = case HardPurge of
-                     true ->code:purge( Module );
-                     false -> code:soft_purge( Module )
-                  end,
-    case PurgeResult of
-        false -> {error, purge};
-        true  -> 
-            (case code:load_binary( Module, ?FAKE_PATH, NewBinary ) of
-                {module,_} -> {ok, vsn( Module )};
-                Error      -> Error
-             end)
-    end.  
-
-
-%% @private
 %% @doc Given a function AST and a set of AST expressions, inject them into the 
 %%   the function given a pattern.
 %% @end
 pattern_inject( FunctionAST, Exprs, {Index,WhichClause} ) ->
     {'function',Line,Name,Arity,Clauses} = FunctionAST,
-    InjectorFun = order_injector( Exprs, Index ),
-    {_,RNewClauses} = lists:map( fun( Clause, {CurI, RClauses} ) ->
-                                     case is_clause( CurI, WhichClause ) of
-                                        true  -> 
-                                            NewClause = InjectorFun( Clause ),
-                                            {CurI+1, [NewClause|RClauses]};
-                                        false ->
-                                            {CurI+1, [Clause|RClauses]}
-                                     end
-                                 end, {0, []}, Clauses ),
-    NewClauses = lists:reverse(RNewClauses), 
+    Folder = pattern_matcher( Exprs, Index, WhichClause ),
+    {_,RNewClauses} = lists:foldl( Folder, {0, []}, Clauses ),
+    NewClauses = lists:reverse( RNewClauses ), 
     NewFunctionAST = {'function',Line,Name,Arity,NewClauses},
     {ok, NewFunctionAST}.
 is_clause( _, 'all' ) -> true;
 is_clause( X, List ) when is_list( List ) -> lists:member(X, List);
 is_clause( X, X ) when is_integer(X) -> true;
 is_clause( _, _ ) -> false.
+pattern_matcher( Exprs, Index, WhichClause ) ->
+    InjectorFun = order_injector( Exprs, Index ),
+    fun ( Clause, {CurI, RClauses} ) ->
+        case is_clause( CurI, WhichClause ) of
+           true  ->
+             {clause,L,A,Gs,Es} = Clause,
+             NewEs = InjectorFun( Es ),
+             {CurI+1, [{clause,L,A,Gs,NewEs}|RClauses]};
+           false ->
+             {CurI+1, [Clause|RClauses]}
+        end
+    end.
 order_injector( Things, 'end' ) -> fun( List ) -> List++Things end;
 order_injector( Things, Index ) ->
     fun( List ) -> 
@@ -296,9 +295,11 @@ order_injector( Things, Index ) ->
 %%   provided by the Order.
 %% @end
 order_inject( FunctionAST, Clauses, Order ) ->
-    {'function',Line,Name,Arity,FunClauses} = FunctionAST,
-    InjectorFun = order_injector( Clauses, Order ),
-    NewFunClauses = InjectorFun( FunClauses ),
-    NewFunctionAST = {'function',Line,Name,Arity,NewFunClauses},
-    {ok, NewFunctionAST}.
+    try
+        {'function',Line,Name,Arity,FunClauses} = FunctionAST,
+        InjectorFun = order_injector( Clauses, Order ),
+        NewFunClauses = InjectorFun( FunClauses ),
+        NewFunctionAST = {'function',Line,Name,Arity,NewFunClauses},
+        {ok, NewFunctionAST}
+    catch _:Reason -> {error, Reason} end.
 
