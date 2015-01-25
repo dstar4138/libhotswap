@@ -265,10 +265,40 @@ reload( {Module,_,_}, AST, HardPurge ) ->
 %% @doc Given a function AST and a set of AST expressions, inject them into the 
 %%   the function given a pattern.
 %% @end
-pattern_inject( FunctionAST, Exprs, Pattern ) -> {ok, FunctionAST}.
+pattern_inject( FunctionAST, Exprs, {Index,WhichClause} ) ->
+    {'function',Line,Name,Arity,Clauses} = FunctionAST,
+    InjectorFun = order_injector( Exprs, Index ),
+    {_,RNewClauses} = lists:map( fun( Clause, {CurI, RClauses} ) ->
+                                     case is_clause( CurI, WhichClause ) of
+                                        true  -> 
+                                            NewClause = InjectorFun( Clause ),
+                                            {CurI+1, [NewClause|RClauses]};
+                                        false ->
+                                            {CurI+1, [Clause|RClauses]}
+                                     end
+                                 end, {0, []}, Clauses ),
+    NewClauses = lists:reverse(RNewClauses), 
+    NewFunctionAST = {'function',Line,Name,Arity,NewClauses},
+    {ok, NewFunctionAST}.
+is_clause( _, 'all' ) -> true;
+is_clause( X, List ) when is_list( List ) -> lists:member(X, List);
+is_clause( X, X ) when is_integer(X) -> true;
+is_clause( _, _ ) -> false.
+order_injector( Things, 'end' ) -> fun( List ) -> List++Things end;
+order_injector( Things, Index ) ->
+    fun( List ) -> 
+            {Front,Back} = lists:split( Index, List ),
+            Front++Things++Back
+    end.
 
 %% @private 
 %% @doc Given a function AST and a set of AST clauses, inject them via the index
 %%   provided by the Order.
-order_inject( FunctionAST, Clauses, Order ) -> {ok, FunctionAST}.
+%% @end
+order_inject( FunctionAST, Clauses, Order ) ->
+    {'function',Line,Name,Arity,FunClauses} = FunctionAST,
+    InjectorFun = order_injector( Clauses, Order ),
+    NewFunClauses = InjectorFun( FunClauses ),
+    NewFunctionAST = {'function',Line,Name,Arity,NewFunClauses},
+    {ok, NewFunctionAST}.
 

@@ -115,6 +115,7 @@ ast_to_code( AST ) ->
 %%   code:load_binary/3, etc. This is really for verbosity and completness 
 %%   sake.
 %% @end
+-spec ast_to_beam( ast() ) -> {ok, binary()} | {error, atom()}.
 ast_to_beam( AST ) ->
     case compile:forms( AST ) of
         {ok,_Module,BEAM} -> {ok, BEAM};
