@@ -40,6 +40,12 @@ modify them before possibly injecting back in.
 {ok, {'fun',0,{clauses,[{clause,1,[],[],[{atom,1,'test'}]}]}}}.
 > libhotswap:vsn( io ). % Check Module information like version number
 {ok, 220424659779942659805372826583560828129}
+> libhotswap:get_ast( fun io:nl/0 ). % Analyze module internals too.
+{ok, {function,92,nl,0,
+               [{clause,92,[],[],
+                        [{call,93,
+                               {atom,93,nl},
+                               [{call,93,{atom,93,default_output},[]}]}]}]}}
 ```
 
 LibHotSwap also wraps Erlang's natural hot-code-reloading mechanism to provide
