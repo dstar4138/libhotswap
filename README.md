@@ -1,33 +1,82 @@
 # LibHotSwap #
 
-LibHotSwap is an Erlang library used to aid in automatic updates of live running 
-modules using Erlang's introspection, compiler, and internal module versioning 
-mechanism. LibHotSwap can be built into a system to auto update it's own 
-functionality based on new information to become specialized or faster, or due 
-to the recognition of missing edge-cases and become more generalized.
+LibHotSwap is an Erlang library used to aid in self-modifying code: easy 
+updates of live running modules using Erlang's introspection, compiler, and 
+internal module versioning mechanism. LibHotSwap can be built into a larger 
+system with goals to become specialized or optimized, via the recognition of 
+missing edge-cases with auto updates to it's own code.
+
+LibHotSwap can also be used in the testing of other modules by means of mocking
+function behaviour of system. Complex functions can temporarily be overwritten
+or whole modules (or single functions) can have functions injected with logging 
+information. 
+
+Modules can even take on dynamic natures, with exports being added or removed
+during runtime. Think duck-typing where templates can inject functionality on 
+modules for compatibility purposes.
+
+**NOTE:** LibHotSwap is currently being developed for use in an event processing
+framework called EMP: Extensible Monitoring Platform. It uses it internally to
+optimize it's unifying routing function based on frequency of events and the
+fluctuation of the user's event-subscription model. Due to this, it maintains
+some specialization.
+
+**WARNING:** This library is not being used in production presently. Be very 
+careful in considering its use for production purposes. We have not taken the 
+time to battle test this nor investigate ease-of-debugging mechanisms yet.
 
 ## How to Use LibHotSwap ##
 
+LibHotSwap provides wrappers around Erlang's introspection and compilation 
+mechanisms. This is for the purpose of seeing internal representations to 
+modify them before possibly injecting back in.
+
+```erlang
+> TestFun = fun() -> test end.
+#Fun<erl_eval.20.90072148>
+> libhotswap:get_code( TestFun ). % Convert Erlang to ASTs or Source code.
+{ok, "fun () -> test end"}
+> libhotswap:get_ast( TestFun ).
+{ok, {'fun',0,{clauses,[{clause,1,[],[],[{atom,1,'test'}]}]}}}.
+> libhotswap:vsn( io ). % Check Module information like version number
+{ok, 220424659779942659805372826583560828129}
+```
+
+LibHotSwap also wraps Erlang's natural hot-code-reloading mechanism to provide
+more fine-grain module and function-level injection capabilities.
+
 ```erlang
 > io:nl(). % print a new line
-
+ 
 ok
-> NewFunction = fun() -> test end.
-#Fun<erl_eval.20.90072148>
-> libhotswap:gen_code( NewFunction ).
-{ok, "fun()->test end"}
-> libhotswap:vsn( io ).
-{ok, 220424659779942659805372826583560828129}
-> libhotswap:rewrite( true, {io, nl, 0}, NewFunction ).
-{ok, 220424659779942659805372826583560828130}
-> libhotswap:vsn( modulename ).
-{ok, 220424659779942659805372826583560828130}
-> io:nl(). % Instead runs the new function as it has been replaced.
+> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
+{ok, 220424659779942659805372826583560828130}.
+> io:nl(). % Surgical injection of code in the front of the first function clause.
+hi
+ 
+ok
+> libhotswap:rewrite( {io, nl, 0}, TestFun ). % Brute force, function overwrites
+{ok, 220424659779942659805372826583560828131}
+> io:nl(). % Brute force, function overwrite.
 test
 >
 ```
 
-## Warning: Write Your Code Correctly ##
+## Integrating LibHotSwap Into an Application ##
+
+LibHotSwap supports [rebar](https://github.com/rebar/rebar). Just import as a
+dependency and libhotswap can be used directly as shown above or in the API.
+
+Note some of the features require the LibHotSwap Code Server to be running on 
+the node. For example, module version rollbacks and caching changes. Presently,
+without the server running you can only inject/overwrite once to a module. To
+perform multiple edits, the server needs to have a physical save of each 
+successive version.
+
+To turn the server on, and add it to your OTP Application, you can add
+`libhotswap_server:start_link/2` to your supervisory tree. 
+
+## A Note About Recursive Functions ##
 
 LibHotSwap can help you up to a point. But if the function which is getting 
 replaced is recursive and it's called like so:
@@ -50,66 +99,7 @@ the above advice, and rewrite the module twice, the third version will knock
 out any processes running the oldest version to assuming the processes are
 orphaned.
 
+## License ##
 
-## API ##
-```erlang
--type ast()   :: erl_syntax:syntaxTree().
--type func()  :: ast() | string() | fun().
-```
-
-#### Add or update code in a module: ####
-
-Note the initial boolean, this is to make check if you want to force the module
-update in the event the module is in a Sticky Directory (a safety mechanism 
-performed by the Erlang code server for stdlib etc.).
-
-```erlang
-add_export( boolean(), mfa(), func() ) -> {ok, vsn()} | {error, term()}.
-rewrite( boolean(), mfa(), func() ) -> {ok, vsn()} | {error, term()}.
-remove_export( boolean(), mfa() ) -> {ok, vsn()} | {error, term()}.
-```
-
-#### Get the Erlang Code (as a string), ####
-
-Useful if you want to do RegEx replacements before a `rewrite/2`, such as to
-replace all calls to `modulev1` to `modulev2`:
-```erlang
-get_code( term() ) -> {ok, string()} | {error, term()}.
-get_code( mfa() ) -> {ok, string()} | {error, term()}.
-```
-
-#### Get the Abstract Syntax Tree (as a term): ####
-
-Useful if you want to do more advanced analysis before a `rewrite/2`, such as 
-reordering case statements:
-```erlang
-get_ast( term() ) -> {ok, ast()} | {error, term()}.
-get_ast( mfa() ) -> {ok, ast()} | {error, term()}.
-```
-
-#### Ease of use module information accessors: ####
-```erlang
-vsn( ModuleName :: atom() ) -> vsn() | error.
-version( ModuleName :: atom() ) -> string() | error.
-exports( ModuleName :: atom() ) -> [ mfa() ] | error.
-```
-
-#### Some specialized functionality: ####
-
-To automatically update a single function by affixing, appending, or inserting
-some code into it given an function (which can have multiple clauses) based on
-a pattern. This pattern specifies which statement location the new code should
-appear before, and in which clauses of the function.
-```erlang
--type pattern() :: { StatementLocation :: non_neg_integer(), 
-                     WhichClauses :: [ non_neg_integer() ] | all }.
--spec inject_in_function( boolean(), mfa(), func(), pattern() ) -> {ok, vsn()} | {error, term()}.
-```
-
-Alternatively, you can add a new clause to a function. This may cause an errors
-if suddenly have unreachable code.
-```erlang
--type order() :: non_neg_integer().
-add_new_clause( boolean(), mfa(), func(), order() ) -> {ok, vsn()} | {error, term()}.
-```
+LibHotSwap is Apache 2.0, please refer to [LICENSE](LICENSE) for more detail.
 
