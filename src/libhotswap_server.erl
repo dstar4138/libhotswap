@@ -178,7 +178,21 @@ verify_cache_dir( Dir ) ->
 %% @hidden
 %% @doc Load the data already in the cache directory for use by the 
 load_cached_data( CacheDirectory ) ->
-    ok.
+    RegEx = ".*\.beam", % Scan over just BEAM files
+    Recursive = true,   % Sure, just check everything if the user messed around
+    Init = [],          % Proplist state [ {Module, [{Vsn,Beam}|_]} | _ ] 
+    Fun = fun( BeamFile, Map ) ->
+                 case load_beam_file( BeamFile ) of
+                    {Module, Beam, _Dir} -> 
+                        Stack = proplists:get_value( Module, Map, [] ),
+                        Vsn = filename_version( BeamFile ),
+                        BackwardsStack = lists:sort ([{Vsn,Beam}|Stack] ),
+                        NewStack = lists:reverse( BackwardsStack ),
+                        lists:keyreplace( Module, 1, {Module, NewStack}, Map );
+                    error -> Map
+                 end
+          end,
+    filelib:fold_files( CacheDirectory, RegEx, Recursive, Fun, Init ).
 
 %%%===================================================================
 %%% Call handlers
@@ -186,7 +200,9 @@ load_cached_data( CacheDirectory ) ->
 
 %% @hidden
 %% @doc On stop, we will return we are shutting down, but before so: we may
-%%   need to remove the  
+%%   need to remove all the cached files, and revert all modules to their 
+%%   original state.
+%% @end
 handle_call_stop( UnloadOnShutdown, State ) ->
     case State#state.persist_on_shutdown of
         true  -> ok;
@@ -198,14 +214,103 @@ handle_call_stop( UnloadOnShutdown, State ) ->
     end,
     {stop, normal, ok, State}. 
 
-handle_call_get_object_code( Module, State ) -> ok 
-handle_call_reload( Module, Binary, State ) -> ok.
+%% @hidden
+%% @doc Get the currently loaded module code, and mimic code:get_object_code/1.
+handle_call_get_object_code( Mod, State=#state{ cache_dir=CD, 
+                                                module_rollback_map=Map } ) ->
+    case proplists:get_value( Mod, Map ) of
+       undefined -> % If not found, go to code server. 
+            DefaultRet = code:get_object_code( Mod ),
+            {reply, DefaultRet, State};
+       [{_,Binary}|_] -> % Grab top version on the stack. 
+            {reply, {Mod,Binary,CD}, State}
+    end. 
+
+%% @hidden
+%% @doc
+handle_call_reload( Module, Binary, State=#state{ cache_dir=CD,
+                                                  rollback_length=Max,
+                                                  use_soft_purge=SoftPurge,
+                                                  module_rollback_map=Map } ) ->
+    NewEntry = {beam_lib:version(Binary), Binary},
+    case proplists:get_value( Module, Map ) of
+        undefined -> % Add binary to rollback server and load binary into memory
+            case libhotswap_util:reload( Module, Binary, SoftPurge ) of
+                ok ->
+                    NewMod = {Module, [NewEntry]},
+                    NewState = State#state{module_rollback_map=[NewMod|Map]}, 
+                    {reply, ok, NewState};
+                error ->
+                    {reply, error, State}
+            end;
+        Stack ->
+            case libhotswap_util:reload( Module, Binary, SoftPurge ) of
+                ok ->
+                    {Save, PurgeSet} = lists:split( Max, [NewEntry|Stack] ),
+                    ok = purge_beam_files( CD, Module, PurgeSet ),
+                    NewMap = lists:keyreplace( Module, 1, {Module,Save}, Map ),
+                    NewState = State#state{module_rollback_map=NewMap},
+                    {reply, ok, NewState};
+                error ->
+                    {reply, error, State}
+            end
+    end.
+
+%% @hidden
+%% @doc
 handle_call_reload_all( State ) -> ok.
+
+%% @hidden
+%% @doc
 handle_call_rollback( Module, N, State ) -> ok.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
+%% @hidden
+%% @doc We save cache files like: module_version.beam. This returns the 
+%%   version as an integer.
+%% @end
+filename_version( Filename ) ->
+    Name = filename:rootname( filename:basename( Filename ) ),
+    case string:tokens( Name, "_" ) of
+        [_Module,Version] -> 
+            case string:to_integer( Version ) of
+                {Int,_} -> Int;
+                _ -> 0
+            end;
+        _ -> 0
+    end.
+
+%% @hidden
+%% @doc Load the beam file from disk in the same way code:get_object_code/1. 
+load_beam_file( BeamFile ) -> 
+    case file:read_file( BeamFile ) of
+        {ok, Beam} -> 
+            Info = beam_lib:info( Beam ),
+            case proplists:get_value( module, Info ) of
+                undefined -> {error, undefined};
+                Module -> {Module, Beam, filename:dirname(BeamFile)}
+            end;
+        Error -> Error
+    end.
+
+%% @hidden
+%% @doc 
+purge_beam_files( _, _, [] ) -> ok;
+purge_beam_files( CD, Module, [{Vsn,_Binary}|R] ) ->
+    FilePath = lists:flatten( [CD,"/",atom_to_list(Module),
+                                "_",integer_to_list(Vsn),".beam"] ),
+    
+    file:delete( FilePath ), % Intentional ignore return type.
+    purge_beam_files( CD, Module, R ).
+
+%% @hidden
+%% @doc 
 unload_all( State ) -> ok.
+
+%% @hidden
+%% @doc
 purge_all( State ) -> ok.
+
