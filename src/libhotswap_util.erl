@@ -1,11 +1,14 @@
 %%% libhotswap - Utility Module
 %%%
-%%% Deterministic utility functionality for type conversions and Parsed Abstract 
-%%% Syntax Tree modification.
+%%% Deterministic utility functionality for type conversions and the parsed
+%%% abstract syntax tree modification. It also handles all contact with the 
+%%% Erlang Code Server on behalf of the primary api and the libhotswap_server,
+%%% to consolidate known functionality into a single place.
 %%% 
 -module( libhotswap_util ).
 -include("libhotswap.hrl").
 
+% Public Exports
 -export( [ check_unsticky/2, 
            get_ast/1,
            fun_to_ast/1,
@@ -14,8 +17,12 @@
            ast_to_code/1,
            ast_to_beam/1,
            ast_by_mfa/2, ast_by_mfa/1,
-           inject_attributes/2
+           inject_attributes/2,
+           reload/2
          ] ).
+
+% Private Exports
+-export( [ reload/3 ] ).
 
 %% @doc Check if the module is in a sticky directory (as is the case with stdlib
 %%   modules). If it is, and you are want to force it, it'll make it unsticky 
@@ -43,7 +50,12 @@ check_unsticky( Module, Force ) ->
 %% @end
 -spec get_ast( atom() ) -> {ok, ast()} | error.
 get_ast( Module ) ->
-    case code:get_object_code( Module ) of
+    % If the local code server wrapper is up, use that instead of the built-in.
+    Fun = case libhotswap_server:local_instance() of
+            {ok, _Pid} -> fun libhotswap_server:get_object_code/1;
+            false      -> fun code:get_object_code/1
+          end,
+    case Fun( Module ) of
         {Module, Binary, _Dir} -> beam_to_ast( Binary );
         error -> error
     end.
@@ -159,6 +171,30 @@ inject_attributes( Attributes, FullAST ) ->
         {[],_} -> {error, badarg};
         {_,[]} -> {error, badarg};
         {T,B}  -> {ok, T++Attributes++B}
+    end.
+
+%% @doc Perform a reload in the event the libhotswap_server is not up.
+%%   This means we should take sain defaults (soft_purge) and keep minimal
+%%   backups (just what code:load_module/2 allows).
+%% @end
+-spec reload( module(), binary() ) -> ok | {error, atom()}.
+reload( Module, Binary ) -> reload( Module, Binary, false ).
+
+%% @private
+%% @doc Pass in whether to use a hard purge on reload of the module.
+-spec reload( module(), binary(), boolean() ) -> ok | {error, atom()}.
+reload( Module, Binary, UseHardPurge ) ->
+    PurgeResult = case UseHardPurge of
+                     true  -> code:purge( Module );
+                     false -> code:soft_purge( Module )
+                  end,
+    case PurgeResult of
+        false -> {error, not_purged};
+        true  -> 
+            (case erlang:load_module( Module, Binary ) of
+                {module,_} -> ok; 
+                Error      -> Error
+             end)
     end.
 
 %% ===========================================================================

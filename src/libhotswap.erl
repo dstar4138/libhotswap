@@ -100,7 +100,7 @@ add_export( {Module,Fun,Arity}=MFA, Func ) ->
     {ok, CleanFAST} = generate_function_from_func( Fun, Arity, AST ),
     NewAST = add_before_eof(ModuleAST, [CleanFAST]),
     {ok, NewModule} = libhotswap_util:inject_attributes( Export, NewAST ),
-    libhotswap_server:reload( MFA, NewModule ).
+    reload( MFA, NewModule ).
 
 %% @doc Remove a function which has been exported from the module. This not
 %%   only makes it unexported, it will also delete the function code.
@@ -115,7 +115,7 @@ remove_export( {Module,F,A}=MFA ) ->
     {attribute, Line, export, Exs} = Ex,
     CleanExs = lists:delete( {F,A}, Exs ),
     NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
-    libhotswap_server:reload( MFA, NewModule ).
+    reload( MFA, NewModule ).
 
 %% @doc Given a func and an MFA, overwrite the MFA with the provided Func.
 %%   This will completely overload the function and reload the module. Be
@@ -127,7 +127,7 @@ rewrite( {Module,F,A}=MFA, Func ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
     {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
-    libhotswap_server:reload( MFA, Top++[CleanFAST|Bbm] ).
+    reload( MFA, Top++[CleanFAST|Bbm] ).
 
 
 %% ===========================================================================
@@ -159,7 +159,7 @@ inject_in_function( {Module,Fun,Arity}=MFA, Func, Pattern ) ->
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case pattern_inject( FunAST, BodyAST, Pattern ) of
                 {ok, NewFunAST} -> 
-                    libhotswap_server:reload( MFA, Top++[NewFunAST|Btm] );
+                    reload( MFA, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
     end.
@@ -186,7 +186,7 @@ add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) ->
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case order_inject( FunAST, Clauses, Order ) of
                 {ok, NewFunAST} -> 
-                    libhotswap_server:reload( MFA, Top++[NewFunAST|Btm] );
+                    reload( MFA, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
     end.
@@ -194,6 +194,22 @@ add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) ->
 %%% ============
 %%% Private
 %%% ============
+
+%% @doc Load a new version of a module (MFA) given a new AST. This might be
+%%   ripe for improvement (such as with an ondisk cache of all updated 
+%%   versions for easy rollback or analysis.
+%% @end
+-spec reload( module(), ast() ) -> {ok, vsn()} | {error, atom()}.
+reload( Module, AST ) -> 
+    {ok, NewBinary} = libhotswap_util:ast_to_beam( AST ),
+    Fun = case libhotswap_server:local_instance() of
+        {ok, _Pid} -> fun libhotswap_server:reload/2;
+        false      -> fun libhotswap_util:reload/2
+    end,
+   case Fun( Module, NewBinary ) of
+      ok -> {ok, vsn( Module )};
+      Error -> Error
+    end. 
 
 %% @private
 %% @doc Returns an AST splitter which attempts to find the exported MFA. 
