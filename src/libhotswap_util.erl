@@ -187,12 +187,13 @@ inject_attributes( Attributes, FullAST ) ->
 %%   This means we should take sain defaults (soft_purge) and keep minimal
 %%   backups (just what code:load_module/2 allows).
 %% @end
--spec reload( module(), binary() ) -> ok | {error, atom()}.
+-spec reload( module(), binary() ) -> ok | {error, not_purged | on_load}.
 reload( Module, Binary ) -> reload( Module, Binary, false ).
 
 %% @private
 %% @doc Pass in whether to use a hard purge on reload of the module.
--spec reload( module(), binary(), boolean() ) -> ok | {error, atom()}.
+-spec reload( module(), binary(), boolean() ) -> ok | 
+                                                 {error, not_purged | on_load}.
 reload( Module, Binary, UseHardPurge ) ->
     PurgeResult = case UseHardPurge of
                      true  -> code:purge( Module );

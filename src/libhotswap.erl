@@ -123,14 +123,14 @@ get_ast( ErlOrCode ) -> libhotswap_util:funcs( ErlOrCode ).
 
 %% @doc Add a new function to a module and load it back into memory.
 -spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
-add_export( {Module,Fun,Arity}=MFA, Func ) ->
+add_export( {Module,Fun,Arity}, Func ) ->
     {ok, AST} = libhotswap_util:funcs( Func ),
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     Export = [{attribute, 1, export, [{Fun, Arity}]}],
     {ok, CleanFAST} = generate_function_from_func( Fun, Arity, AST ),
     NewAST = add_before_eof(ModuleAST, [CleanFAST]),
     {ok, NewModule} = libhotswap_util:inject_attributes( Export, NewAST ),
-    reload( MFA, NewModule ).
+    reload( Module, NewModule ).
 
 %% @doc Remove a function which has been exported from the module. This not
 %%   only makes it unexported, it will also delete the function code.
@@ -138,26 +138,26 @@ add_export( {Module,Fun,Arity}=MFA, Func ) ->
 -spec remove_export( mfa() ) -> {ok, vsn()} | {error, Error}
             when Error :: badarg | badfile | native_code | nofile | 
                           not_purged | novsn | on_load | sticky_directory. 
-remove_export( {Module,F,A}=MFA ) ->
+remove_export( {Module,F,A} ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [Ex|Btm]} = lists:splitwith( find_attr(F,A), ModuleAST ),
     {BTop,[_F|Bbm]} = lists:splitwith( find_func(F,A), Btm ),
     {attribute, Line, export, Exs} = Ex,
     CleanExs = lists:delete( {F,A}, Exs ),
     NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
-    reload( MFA, NewModule ).
+    reload( Module, NewModule ).
 
 %% @doc Given a func and an MFA, overwrite the MFA with the provided Func.
 %%   This will completely overload the function and reload the module. Be
 %%   very careful doing this to stdlib functions.
 %% @end
 -spec rewrite( mfa(), func() ) -> {ok, vsn()} | {error, term()}.
-rewrite( {Module,F,A}=MFA, Func ) -> 
+rewrite( {Module,F,A}, Func ) -> 
     {ok, FunctnAST} = libhotswap_util:funcs( Func ),
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
     {ok, CleanFAST} = generate_function_from_func( F,A, FunctnAST ),
-    reload( MFA, Top++[CleanFAST|Bbm] ).
+    reload( Module, Top++[CleanFAST|Bbm] ).
 
 
 %% ===========================================================================
@@ -177,7 +177,7 @@ rewrite( {Module,F,A}=MFA, Func ) ->
 %% @end
 -spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | 
                                                         {error, term()}.
-inject_in_function( {Module,Fun,Arity}=MFA, Func, Pattern ) -> 
+inject_in_function( {Module,Fun,Arity}, Func, Pattern ) -> 
     {ok, FuncAST} = libhotswap_util:funcs( Func ),
     case verify_func_arity( 0, FuncAST ) of
         error -> {error,badarity};
@@ -189,7 +189,7 @@ inject_in_function( {Module,Fun,Arity}=MFA, Func, Pattern ) ->
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case pattern_inject( FunAST, BodyAST, Pattern ) of
                 {ok, NewFunAST} -> 
-                    reload( MFA, Top++[NewFunAST|Btm] );
+                    reload( Module, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
     end.
@@ -205,7 +205,7 @@ inject_in_function( {Module,Fun,Arity}=MFA, Func, Pattern ) ->
 %% @end
 -spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} | 
                                                             {error, term()}.
-add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) -> 
+add_new_clause( {Module,Fun,Arity}, Func, Order ) -> 
     {ok, FuncAST} = libhotswap_util:funcs( Func ),
     case verify_func_arity( Arity, FuncAST ) of
         error -> {error,badarity};
@@ -216,7 +216,7 @@ add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) ->
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case order_inject( FunAST, Clauses, Order ) of
                 {ok, NewFunAST} -> 
-                    reload( MFA, Top++[NewFunAST|Btm] );
+                    reload( Module, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
     end.
@@ -307,12 +307,14 @@ get_ast_body_clauses( _ ) -> {error, badarg}.
 %%   the function given a pattern.
 %% @end
 pattern_inject( FunctionAST, Exprs, {Index,WhichClause} ) ->
-    {'function',Line,Name,Arity,Clauses} = FunctionAST,
-    Folder = pattern_matcher( Exprs, Index, WhichClause ),
-    {_,RNewClauses} = lists:foldl( Folder, {0, []}, Clauses ),
-    NewClauses = lists:reverse( RNewClauses ), 
-    NewFunctionAST = {'function',Line,Name,Arity,NewClauses},
-    {ok, NewFunctionAST}.
+    try
+        {'function',Line,Name,Arity,Clauses} = FunctionAST,
+        Folder = pattern_matcher( Exprs, Index, WhichClause ),
+        {_,RNewClauses} = lists:foldl( Folder, {0, []}, Clauses ),
+        NewClauses = lists:reverse( RNewClauses ), 
+        NewFunctionAST = {'function',Line,Name,Arity,NewClauses},
+        {ok, NewFunctionAST}
+    catch _:Reason -> {error, Reason} end.
 is_clause( _, 'all' ) -> true;
 is_clause( X, List ) when is_list( List ) -> lists:member(X, List);
 is_clause( X, X ) when is_integer(X) -> true;

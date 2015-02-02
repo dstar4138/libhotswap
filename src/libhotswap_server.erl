@@ -66,8 +66,8 @@ stop( OverrideUnloadOnShutdown ) ->
 %% @end
 local_instance() ->
     case whereis( ?MODULE ) of
-        {ok, Pid} -> {ok, Pid};
-        _         -> false
+        undefined -> false;
+        PidOrPort -> {ok, PidOrPort}
     end.
 
 %% @doc Wrap a call to code:get_object_code/1 with versioning and the
@@ -107,10 +107,8 @@ rollback( Module, N ) ->
 %% @private
 %% @doc Load up the 
 init([]) -> 
-    case build_init_env() of
-        {ok,InitState} -> validate_state( InitState );
-        Error          -> Error
-    end.
+    InitState = build_init_env(),
+    validate_state( InitState ).
 
 %% @private
 %% @doc Handle all API functionality for the libhotswap_server.
@@ -229,19 +227,19 @@ handle_call_hotswap( Module, Binary, State=#state{ cache_dir=CD,
                     NewMod = {Module, [NewEntry]},
                     NewState = State#state{module_rollback_map=[NewMod|Map]}, 
                     {reply, ok, NewState};
-                error ->
-                    {reply, error, State}
+                {error,_}=Error ->
+                    {reply, Error, State}
             end;
         Stack ->
             case libhotswap_util:reload( Module, Binary, SoftPurge ) of
                 ok ->
                     {Save, PurgeSet} = lists:split( Max, [NewEntry|Stack] ),
                     ok = purge_cache_files( CD, Module, PurgeSet ),
-                    NewMap = lists:keyreplace( Module, 1, {Module,Save}, Map ),
+                    NewMap = lists:keyreplace( Module, 1, Map, {Module,Save} ),
                     NewState = State#state{module_rollback_map=NewMap},
                     {reply, ok, NewState};
-                error ->
-                    {reply, error, State}
+                {error,_}=Error ->
+                    {reply, Error, State}
             end
     end.
 
@@ -270,7 +268,7 @@ handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
                     ok = purge_cache_files( CD, Module, Stack ),
                     case code:get_object_code( Module ) of
                         {_, Binary, _} -> 
-                            NewMap = lists:keyreplace( Module, 1, {Module,[]}, Map ),
+                            NewMap = lists:keyreplace( Module, 1, Map, {Module,[]} ),
                             NewState = State#state{module_rollback_map=NewMap},
                             Return = libhotswap_util:reload( Module, Binary, SoftPurge ),
                             {reply, Return, NewState};
@@ -280,7 +278,7 @@ handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
                 false ->
                     {Top, [{_,Binary}|_]=NewStack} = lists:split( N-1, Stack ),
                     ok = purge_cache_files( CD, Module, Top ),
-                    NewMap = lists:keyreplace( Module, 1, {Module,NewStack}, Map ),
+                    NewMap = lists:keyreplace( Module, 1, Map, {Module,NewStack} ),
                     NewState = State#state{module_rollback_map=NewMap},
                     Return = libhotswap_util:reload( Module, Binary, SoftPurge ),
                     {reply, Return, NewState}
@@ -308,8 +306,8 @@ load_all_cache_files( CacheDirectory ) ->
                         Vsn = filename_version( BeamFile ),
                         BackwardsStack = lists:sort ([{Vsn,Beam}|Stack] ),
                         NewStack = lists:reverse( BackwardsStack ),
-                        lists:keyreplace( Module, 1, {Module, NewStack}, Map );
-                    error -> Map
+                        lists:keyreplace( Module, 1, Map, {Module, NewStack} );
+                     {error,_} -> Map
                  end
           end,
     filelib:fold_files( CacheDirectory, RegEx, Recursive, Fun, Init ).
@@ -335,7 +333,7 @@ purge_cache_files( _, _, [] ) -> ok;
 purge_cache_files( CD, Module, [{Vsn,_Binary}|R] ) ->
     FilePath = lists:flatten( [CD,"/",atom_to_list(Module),
                                 "_",integer_to_list(Vsn),".beam"] ),
-    file:delete( FilePath ), % Intentional ignore return type.
+    _ = file:delete( FilePath ), % Intentional ignore return type.
     purge_cache_files( CD, Module, R ).
 
 
@@ -400,7 +398,7 @@ filename_version( Filename ) ->
     case string:tokens( Name, "_" ) of
         [_Module,Version] -> 
             case string:to_integer( Version ) of
-                {Int,_} -> Int;
+                {Int,_} when is_integer(Int) -> Int;
                 _ -> 0
             end;
         _ -> 0
