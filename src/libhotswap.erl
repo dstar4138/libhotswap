@@ -3,6 +3,7 @@
 -include("libhotswap.hrl").
 
 -export([start_server/0, stop_server/0, check_server/0]).
+-export([rollback/1,rollback/2]).
 
 -export([vsn/1,version/1,exports/1]).
 -export([get_code/1,get_ast/1]).
@@ -41,6 +42,19 @@ stop_server() ->
 -spec check_server() -> {ok, pid()} | false.
 check_server() ->
     libhotswap_server:local_instance().
+
+%% @doc Rollback the module one change and purge the current state.
+-spec rollback( module() ) -> ok | {error, term()}.
+rollback( Module ) ->
+    libhotswap_server:rollback( Module, 1 ).
+
+%% @doc Roll a module back N changes. If N is larger than the rollback history
+%%   of the module, then it will be reset to it's original state (e.g. the
+%%   binary of the module on the path).
+%% @end
+-spec rollback( module(), pos_integer() ) -> ok | {error, term()}.
+rollback( Module, N ) ->
+    libhotswap_server:rollback( Module, N ).
 
 %% ===========================================================================
 %% Misc Ease of Access Functionality

@@ -46,6 +46,7 @@ modify them before possibly injecting back in.
                         [{call,93,
                                {atom,93,nl},
                                [{call,93,{atom,93,default_output},[]}]}]}]}}
+>
 ```
 
 LibHotSwap also wraps Erlang's natural hot-code-reloading mechanism to provide
@@ -56,17 +57,52 @@ more fine-grain module and function-level injection capabilities.
  
 ok
 > libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
-{ok, 220424659779942659805372826583560828130}.
+{ok, 220424659779942659805372826583560828130}
 > io:nl(). % Surgical injection of code in the front of the first function clause.
 hi
  
 ok
-> libhotswap:rewrite( {io, nl, 0}, TestFun ). % Brute force, function overwrites
+> libhotswap:rewrite( {io,nl,0}, TestFun ). % Brute force, function overwrites
 {ok, 220424659779942659805372826583560828131}
 > io:nl(). % Brute force, function overwrite.
 test
 >
 ```
+
+However, if you performed two modifications to the same module, only the final
+one would take, as the Erlang Code server reads the module's object code from
+the path each time LibHotSwap updates the one in memory. LibHotSwap therefore
+bundles a server which wraps the code server with an on-disk cache for saving
+multiple versions of modifications. This even gives us rollback capability:
+
+```erlang
+> l(io). % Reload io.beam from path.
+ok
+> libhotswap:start_server().
+ok
+> libhotswap:vsn( io ). % Check Module information like version number
+{ok, 220424659779942659805372826583560828129}
+> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
+{ok, 220424659779942659805372826583560828130}.
+> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
+{ok, 220424659779942659805372826583560828131}.
+> io:nl().
+hi
+hi
+
+ok
+> libhotswap:rollback( io ).
+{ok, 220424659779942659805372826583560828130}.
+> io:nl().
+hi
+
+ok
+>
+```
+
+There is also a `libhotswap:rollback/2` function provided if you want to roll 
+back multiple versions. These functions will fail with an error if the 
+LibHotSwap Server is not running.
 
 ## Integrating LibHotSwap Into an Application ##
 
@@ -80,7 +116,9 @@ perform multiple edits, the server needs to have a physical save of each
 successive version.
 
 To turn the server on, and add it to your OTP Application, you can add
-`libhotswap_server:start_link/2` to your supervisory tree. 
+`libhotswap_server:start_link/2` to your supervisory tree. Or somewhere in your
+application's initialization you can call `application:start(libhotswap)` or 
+`libhotswap:start_server()`.
 
 ## A Note About Recursive Functions ##
 

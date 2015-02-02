@@ -8,7 +8,7 @@
 -export([local_instance/0,
          hotswap/2, hotswap_all/0,
          get_object_code/1,
-         rollback/1, rollback/2
+         rollback/2
         ]).
 
 %% gen_server callbacks
@@ -88,9 +88,6 @@ hotswap( Module, Binary ) ->
 %% @end
 hotswap_all() ->
     gen_server:call( ?MODULE, hotswap_all ).
-
-%% @doc Rollback the module to the previous saved version in the stack.
-rollback( Module ) -> rollback( Module, 1 ).
 
 %% @doc Rollback the module N times. This has the effect of reverting the
 %%   last N-1 changes. In otherwords, rollback( test, 1 ), will go to the
