@@ -171,7 +171,7 @@ validate_state( #state{cache_dir=CD, reload_on_startup=Reload}=InitState ) ->
 %% @doc Ensure the directory exists for cache storage.
 verify_cache_dir( Dir ) -> 
     Path = case filename:split( Dir ) of
-               ["~"|Rest] -> filename:join([os:getenv("HOME")]++Rest);
+               [[$~]|Rest] -> filename:join([os:getenv("HOME")]++Rest);
                _          -> Dir
            end,
     filelib:ensure_dir( Path ).
