@@ -1,7 +1,8 @@
 -module(libhotswap).
 
 -include("libhotswap.hrl").
--define(FAKE_PATH, "libhotswap_fake_path_warning").
+
+-export([start_server/0, stop_server/0, check_server/0]).
 
 -export([vsn/1,version/1,exports/1]).
 -export([get_code/1,get_ast/1]).
@@ -11,6 +12,35 @@
 
 -export_type([ast/0, vsn/0, func/0, pattern/0]).
 
+
+%% ===========================================================================
+%% LibHotSwap Server functionality
+%% ===========================================================================
+
+%% @doc Start the LibHotSwap Server on the local node as a separate application
+%%   tree. To configure the server before start up, please modify the 
+%%   application environment via application:set_env/3,4. For the application's
+%%   configurations, see src/libhotswap.app.src for details.
+%% @end
+-spec start_server() -> ok | {error, term()}.
+start_server() -> 
+    application:start(libhotswap).
+
+%% @doc Stop the LibHotSwap Server. Based on the configurations on startup, this
+%%   may have the effect of reverting all modified modules to their original
+%%   state.
+%% @end
+-spec stop_server() -> ok | {error, term()}.
+stop_server() ->
+    application:stop(libhotswap).
+
+%% @doc Check if the LibHotSwap Server is running. This will return it's pid,
+%%   whether it is running as a separate application or part of a larger
+%%   supervision tree.
+%% @end
+-spec check_server() -> {ok, pid()} | false.
+check_server() ->
+    libhotswap_server:local_instance().
 
 %% ===========================================================================
 %% Misc Ease of Access Functionality
@@ -203,7 +233,7 @@ add_new_clause( {Module,Fun,Arity}=MFA, Func, Order ) ->
 reload( Module, AST ) -> 
     {ok, NewBinary} = libhotswap_util:ast_to_beam( AST ),
     Fun = case libhotswap_server:local_instance() of
-        {ok, _Pid} -> fun libhotswap_server:reload/2;
+        {ok, _Pid} -> fun libhotswap_server:hotswap/2;
         false      -> fun libhotswap_util:reload/2
     end,
    case Fun( Module, NewBinary ) of

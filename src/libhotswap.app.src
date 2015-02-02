@@ -6,21 +6,26 @@
         {applications, [code]},
         {mod, {libhotswap_app,[]}},
         {env, [
-            % The cache directory the server should save to.
+            % The cache directory the server should save to. This directory 
+            % should be outside the Erlang Code Path (e.g. code:get_path/0).
             {cache_dir, "~/.libhotswap_cache"},
 
             % Persist on shutdown, i.e. delete cache on libhotswap:stop/n?
             {persist_on_shutdown, true},
 
             % Return all overloaded modules to their original state on
-            % shutdown.
+            % shutdown. Original State means libhotswap will relinquish
+            % control back to the Code Server which checks the Erlang path
+            % and reloads the modules from there (rather than the cache).
             {unload_on_shutdown, false},
 
-            % Overload on startup, i.e. reload for each in cache_dir on
-            % libhotswap:start*/n?
+            % Overload modules on startup, i.e. reload for each module in
+            % cache_dir on libhotswap:start_server/0?
             {reload_on_startup, true},
 
-            % Number of historical copies to persist for rollback?
+            % Number of historical copies to persist for rollback? This acts
+            % like a stack, where the bottom is trimmed as more are added,
+            % and to rollback more than once has the effect of trimming the top.
             {rollback_length, 5},
 
             % Soft or hard module purge when reloading? See code:purge/1 for
@@ -28,7 +33,8 @@
             {use_soft_purge, true},
 
             % Allow Sticky Directory overriding (namely stdlib). This lets you
-            % modify provided Erlang modules.
+            % modify primary Erlang modules. Useful for patching for mockups and
+            % debugging, not useful for production purposes.
             {sticky_override, false}
         ]}
     ]

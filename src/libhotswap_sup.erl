@@ -21,11 +21,11 @@ start_link( StartArgs ) ->
 
 %% @private
 %% @doc Start up the local libhotswap_server.
-init( [StartArgs] ) ->
+init( [_StartArgs] ) ->
     %TODO: Allow for distributed systems (do we need a server per node?)
     {ok, { {one_for_one, 5, 10}, 
            [ {local_libhotswap, 
-                {libhotswap_server, start_link, [StartArgs]}, 
+                {libhotswap_server, start_link, []}, 
                 permanent, 
                 5000, 
                 worker, 

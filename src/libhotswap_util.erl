@@ -45,18 +45,28 @@ check_unsticky( Module, Force ) ->
         {false, _} -> ok
     end.
 
-%% @doc Get the AST for the module. It does not require the module's
-%%   directory be unsticky, but any modifications pushed to the module will.
-%% @end
--spec get_ast( atom() ) -> {ok, ast()} | error.
-get_ast( Module ) ->
+%% @doc Get the BEAM binary for a module. This wraps around the code server
+%%   or the wrapper libhotswap server to get the most current binary.
+%% @end 
+get_beam( Module ) ->
     % If the local code server wrapper is up, use that instead of the built-in.
     Fun = case libhotswap_server:local_instance() of
             {ok, _Pid} -> fun libhotswap_server:get_object_code/1;
             false      -> fun code:get_object_code/1
           end,
     case Fun( Module ) of
-        {Module, Binary, _Dir} -> beam_to_ast( Binary );
+        {Module, Binary, _Dir} -> {ok, Binary}; 
+        error -> error
+    end.
+
+
+%% @doc Get the AST for the module. It does not require the module's
+%%   directory be unsticky, but any modifications pushed to the module will.
+%% @end
+-spec get_ast( atom() ) -> {ok, ast()} | error.
+get_ast( Module ) ->
+    case get_beam( Module ) of
+        {ok, Binary} -> beam_to_ast( Binary );
         error -> error
     end.
 
