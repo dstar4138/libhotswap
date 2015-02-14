@@ -45,6 +45,7 @@ check_unsticky( Module, Force ) ->
         {false, _} -> ok
     end.
 
+%% @hidden
 %% @doc Get the BEAM binary for a module. This wraps around the code server
 %%   or the wrapper libhotswap server to get the most current binary.
 %% @end 
@@ -58,7 +59,6 @@ get_beam( Module ) ->
         {Module, Binary, _Dir} -> {ok, Binary}; 
         error -> error
     end.
-
 
 %% @doc Get the AST for the module. It does not require the module's
 %%   directory be unsticky, but any modifications pushed to the module will.
@@ -78,7 +78,8 @@ get_ast( Module ) ->
 %%   Note however, libhotswap will not fix references in the ast to module
 %%   specific functions (i.e. unexported).
 %% @end
--spec fun_to_ast( fun() ) -> {ok, pfunc()} | {error, badarg | outofscope}.
+-spec fun_to_ast( fun() ) -> {ok, pfunc()} |
+                             {error, badarg | outofscope | named}.
 fun_to_ast( Fun ) -> 
     Tree = erlang:fun_info( Fun ),
     case 
@@ -92,7 +93,7 @@ fun_to_ast( Fun ) ->
                 % This catch includes named functions, which libhotswap
                 % hasn't taken into consideration (due to possibility of adding 
                 % recursive functionality into already existing MFAs).
-                {[],_,_,_,_Name} -> {error, outofscope};
+                {[],_,_,_,_Name} -> {error, named};
                 _                -> {error, outofscope}
             end
     end.
@@ -151,15 +152,15 @@ ast_to_beam( AST ) ->
 %%   top-level functionality to highlight the section to get the code/ast for.
 %% @end
 -spec ast_by_mfa( ast(), mfa() ) -> {ok, pfunc()} | {error, badarg | missing}.
-ast_by_mfa( AST, {_,F,A} ) -> 
-    case 
+ast_by_mfa( AST, {_,F,A} ) ->
+    case
        [ T || {function,_,Fun,Arity,_} = T <- AST, Fun==F, Arity==A ]
     of
         []  -> {error, missing};
         [T] -> {ok, T};
         _   -> {error, badarg}
     end.
--spec ast_by_mfa( mfa() ) -> {ok, pfunc()} | 
+-spec ast_by_mfa( mfa() ) -> {ok, pfunc()} |
                              {error, badarg | missing | badmodule}.
 ast_by_mfa( {M,_,_}=MFA ) ->
     case get_ast( M ) of
@@ -167,19 +168,19 @@ ast_by_mfa( {M,_,_}=MFA ) ->
         error     -> {error, badmodule}
     end.
 
-%% @doc Inject attributes such as exports/imports/etc. into the top of the 
+%% @doc Inject attributes such as exports/imports/etc. into the top of the
 %%   module.
 %% @end
 -spec inject_attributes( [Attr], ast() ) -> {ok, ast()} | {error, badarg}
             when Attr :: {attribute, integer(), atom(), term()}.
 inject_attributes( Attributes, FullAST ) ->
-    case % Split after module attribute, otherwise we'll have issues. 
-        lists:splitwith( fun({attribute,_,export,_}) -> false; 
-                            (_) -> true 
+    case % Split after module attribute, otherwise we'll have issues.
+        lists:splitwith( fun({attribute,_,export,_}) -> false;
+                            (_) -> true
                          end, FullAST )
     of
-        {[],_} -> {error, badarg};
-        {_,[]} -> {error, badarg};
+        {[],_} -> {error, badmodule};
+        {_,[]} -> {error, noexports};
         {T,B}  -> {ok, T++Attributes++B}
     end.
 
@@ -192,7 +193,7 @@ reload( Module, Binary ) -> reload( Module, Binary, false ).
 
 %% @private
 %% @doc Pass in whether to use a hard purge on reload of the module.
--spec reload( module(), binary(), boolean() ) -> ok | 
+-spec reload( module(), binary(), boolean() ) -> ok |
                                                  {error, not_purged | on_load}.
 reload( Module, Binary, UseHardPurge ) ->
     PurgeResult = case UseHardPurge of
@@ -236,6 +237,7 @@ beam_to_ast( Binary ) ->
 
 %% @hidden
 %% @doc Check to make sure the AST is strickly a function/fun.
+validate_fun_or_function( [MaybeFun] ) -> validate_fun_or_function( MaybeFun );
 validate_fun_or_function( {'fun',_,_}=F )          -> {ok, F};
 validate_fun_or_function( {'function',_,_,_,_}=F ) -> {ok, F};
 validate_fun_or_function( _ )                      -> {error, badarg}. 
