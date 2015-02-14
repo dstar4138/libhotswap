@@ -150,7 +150,7 @@ validate_badInput__get_ast1() ->
 %validate_externalFun__fun_to_ast1() ->
 %    FUN = fun libhotswap_util:fun_to_ast/1,
 %    DUMMYFUN = fun libhotswap_dummy:test/0,
-%    DUMMYAST = {function,3,test,0,[{clause,3,[],[],[{atom,3,ok}]}]}, 
+%    DUMMYAST = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]}, 
 %    ?assertMatch( {ok, DUMMYAST}, FUN( DUMMYFUN ) ). 
 
 %% TEST - Currently a function which has values defined out of scope, 
@@ -251,7 +251,7 @@ validate_funFuncs__funcs1() ->
 %validate_mfaFuncs__funcs1() ->
 %    FUN = fun libhotswap_util:funcs/1,
 %    DUMMYFUN = fun libhotswap_dummy:test/0,
-%    DUMMYAST = {function,3,test,0,[{clause,3,[],[],[{atom,3,ok}]}]}, 
+%    DUMMYAST = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]}, 
 %    ?assertMatch( {ok, DUMMYAST}, FUN( DUMMYFUN ) ). 
 
 %% TEST - If there are multiple expressions in the string, this should cause a 
@@ -322,7 +322,7 @@ validate_externalFun__ast_to_code1() ->
 validate_simple__ast_by_mfa2() -> 
     FUN = fun libhotswap_util:ast_by_mfa/2,
     {ok,AST} = libhotswap_util:get_ast( libhotswap_dummy ),
-    TEST0 = {function,3,test,0,[{clause,3,[],[],[{atom,3,ok}]}]},
+    TEST0 = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]},
     ?assertMatch( {ok, TEST0}, FUN( AST, {libhotswap_dummy, test, 0} ) ).
 
 %% TEST - Make sure it errors out correctly on missing function definition.
@@ -341,7 +341,7 @@ validate_stdlibLookup__ast_by_mfa1() ->
 %% TEST - Perform lookup on our local dummy module function.
 validate_locallibLookup__ast_by_mfa1() ->
     FUN = fun libhotswap_util:ast_by_mfa/1,
-    TEST0 = {function,3,test,0,[{clause,3,[],[],[{atom,3,ok}]}]},
+    TEST0 = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]},
     ?assertMatch( {ok, TEST0}, FUN( {libhotswap_dummy, test, 0} ) ).
 
 %% TEST - Injection is suppose to happen when it finds a valid module. It sould

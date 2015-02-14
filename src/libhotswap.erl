@@ -90,7 +90,9 @@ exports( ModuleName ) when is_atom( ModuleName )  ->
     case 
         erlang:apply( ModuleName, module_info, [ exports ] )
     of
-        Es when is_list( Es ) -> {ok, Es};
+        Es when is_list( Es ) -> 
+            MFA_Es = lists:map( fun({F,A})-> {ModuleName,F,A} end, Es ),
+            {ok, MFA_Es};
         _                     -> {error, badarg}
     end.
 
@@ -133,7 +135,6 @@ get_ast( ErlOrCode ) -> libhotswap_util:funcs( ErlOrCode ).
 %% ===========================================================================
 %% Module Manipulation
 %% ===========================================================================
-
 
 %% @doc Add a new function to a module and load it back into memory.
 -spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
