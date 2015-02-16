@@ -35,7 +35,7 @@
             % Allow Sticky Directory overriding (namely stdlib). This lets you
             % modify primary Erlang modules. Useful for patching for mockups and
             % debugging, not useful for production purposes.
-            {override_sticky, true}
+            {override_sticky, false}
         ]}
     ]
 }.
