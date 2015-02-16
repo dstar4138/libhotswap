@@ -197,7 +197,6 @@ inject_in_function( {Module,Fun,Arity}, Func, Pattern ) ->
     case verify_func_arity( 0, FuncAST ) of
         error -> {error,badarity};
         ok    ->
-            io:format("AST:~p~n",[FuncAST]),
             {ok, BodyAST}   = get_ast_body_exprs( FuncAST ),
             {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
             Splitter = find_func(Fun,Arity),
@@ -252,7 +251,7 @@ reload( Module, AST ) ->
         false      -> fun libhotswap_util:reload/2
     end,
    case Fun( Module, NewBinary ) of
-      ok -> {ok, vsn( Module )};
+      ok -> vsn( Module );
       Error -> Error
     end. 
 

@@ -15,7 +15,7 @@
            code_to_ast/1,
            funcs/1,
            ast_to_code/1,
-           ast_to_beam/1,
+           ast_to_beam/1, beam_to_ast/1,
            ast_by_mfa/2, ast_by_mfa/1,
            inject_attributes/2,
            reload/2
@@ -140,11 +140,23 @@ ast_to_code( AST ) ->
 %% @end
 -spec ast_to_beam( ast() ) -> {ok, binary()} | {error, atom()}.
 ast_to_beam( AST ) ->
-    case compile:forms( AST ) of
+    case compile:forms( AST, [debug_info,report_errors,report_warnings] ) of
         {ok,_Module,BEAM} -> {ok, BEAM};
         {ok,_Module,BEAM,_Warnings} -> {ok, BEAM};
         error -> {error, badarg};
         {error,E,_W} -> {error,E}
+    end.
+
+%% @doc Given some BEAM binary, get the Parsed Abstract Syntax Tree 
+%%   representation.
+%% @end
+beam_to_ast( Binary ) ->
+    case beam_lib:chunks( Binary, [abstract_code] ) of
+        {ok, Ret} -> 
+            {_Module, Chunks} = Ret,
+            {raw_abstract_v1, AST} = proplists:get_value(abstract_code,Chunks), 
+            {ok, AST};
+        _ -> {error, badarg}
     end.
 
 %% @doc Given an AST, return the AST for just the function described by the
@@ -221,19 +233,6 @@ build_mfa_from_info( Tree ) ->
     { proplists:get_value( module, Tree ),
       proplists:get_value( name,   Tree ),
       proplists:get_value( arity,  Tree ) }.
-
-%% @hidden
-%% @doc Given some BEAM binary, get the Parsed Abstract Syntax Tree 
-%%   representation.
-%% @end
-beam_to_ast( Binary ) ->
-    case beam_lib:chunks( Binary, [abstract_code] ) of
-        {ok, Ret} -> 
-            {_Module, Chunks} = Ret,
-            {raw_abstract_v1, AST} = proplists:get_value(abstract_code,Chunks), 
-            {ok, AST};
-        _ -> {error, badarg}
-    end.
 
 %% @hidden
 %% @doc Check to make sure the AST is strickly a function/fun.

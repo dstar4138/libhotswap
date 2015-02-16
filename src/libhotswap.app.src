@@ -3,7 +3,7 @@
         {description, "Utility Library to aid in Self-Modifying Code."},
         {vsn,"0.1"},
         {registered, []},
-        {applications, [code]},
+        {applications, []},
         {mod, {libhotswap_app,[]}},
         {env, [
             % The cache directory the server should save to. This directory 
@@ -30,12 +30,12 @@
 
             % Soft or hard module purge when reloading? See code:purge/1 for
             % more details on difference.
-            {use_soft_purge, true},
+            {use_hard_purge, false},
 
             % Allow Sticky Directory overriding (namely stdlib). This lets you
             % modify primary Erlang modules. Useful for patching for mockups and
             % debugging, not useful for production purposes.
-            {sticky_override, false}
+            {override_sticky, true}
         ]}
     ]
 }.

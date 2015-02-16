@@ -82,9 +82,9 @@ ok
 ok
 > libhotswap:vsn( io ). % Check Module information like version number
 {ok, 220424659779942659805372826583560828129}
-> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
+> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[0]} ).
 {ok, 220424659779942659805372826583560828130}.
-> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
+> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[0]} ).
 {ok, 220424659779942659805372826583560828131}.
 > io:nl().
 hi

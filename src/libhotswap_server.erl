@@ -23,8 +23,9 @@
 -define(D_PERSIST_ON_SHUTDOWN,true).
 -define(D_UNLOAD_ON_SHUTDOWN,false).
 -define(D_RELOAD_ON_STARTUP,true).
+-define(D_OVERRIDE_STICKY,true).
 -define(D_ROLLBACK_LENGTH,5).
--define(D_USE_SOFT_PURGE,true).
+-define(D_USE_HARD_PURGE,false).
 -define(D_CACHE_DIR,"~/.libhotswap_cache").
 
 %% Local State/Configuration of the system.
@@ -33,8 +34,9 @@
             persist_on_shutdown,
             unload_on_shutdown,
             reload_on_startup,
+            override_sticky,
             rollback_length,
-            use_soft_purge,
+            use_hard_purge,
             cache_dir,
             
             % State
@@ -146,8 +148,9 @@ build_init_env() ->
         persist_on_shutdown = application:get_env(libhotswap,persist_on_shutdown,?D_PERSIST_ON_SHUTDOWN),
         unload_on_shutdown = application:get_env(libhotswap,unload_on_shutdown,?D_UNLOAD_ON_SHUTDOWN),
         reload_on_startup = application:get_env(libhotswap,reload_on_startup,?D_RELOAD_ON_STARTUP),
+        override_sticky = application:get_env(libhotswap,override_sticky,?D_OVERRIDE_STICKY),
         rollback_length = application:get_env(libhotswap,rollback_length,?D_ROLLBACK_LENGTH),
-        use_soft_purge = application:get_env(libhotswap,use_soft_purge,?D_USE_SOFT_PURGE),
+        use_hard_purge = application:get_env(libhotswap,use_hard_purge,?D_USE_HARD_PURGE),
         cache_dir = application:get_env(libhotswap,cache_dir,?D_CACHE_DIR)
     }.
 
@@ -156,13 +159,14 @@ build_init_env() ->
 %%   initialization.
 %% @end
 validate_state( #state{cache_dir=CD, reload_on_startup=Reload}=InitState ) ->
-    ok  = verify_cache_dir( CD ),
+    {ok, CleanCD} = verify_cache_dir( CD ),
     Map = load_all_cache_files( CD ),
+    NewState = InitState#state{ cache_dir=CleanCD, module_rollback_map=Map },
     case Reload of
-        true  -> hotswap_all( Map );
+        true  -> hotswap_all( NewState );
         false -> ok
     end,
-    {ok, InitState#state{ module_rollback_map=Map }}.
+    {ok, NewState}.
 
 %% @hidden
 %% @doc Ensure the directory exists for cache storage.
@@ -171,7 +175,11 @@ verify_cache_dir( Dir ) ->
                [[$~]|Rest] -> filename:join([os:getenv("HOME")]++Rest);
                _          -> Dir
            end,
-    filelib:ensure_dir( Path ).
+    % FileLib prunes last dir off path, using a fake file to work as expected.
+    case filelib:ensure_dir( Path ++ "/cache" ) of
+        ok -> {ok, Path};
+        Error -> Error
+    end.
 
 %% ===================================================================
 %% Call handlers
@@ -212,25 +220,36 @@ handle_call_get_object_code( Mod, State=#state{ cache_dir=CD,
 %% @end
 handle_call_hotswap( Module, Binary, State=#state{ cache_dir=CD,
                                                   rollback_length=Max,
-                                                  use_soft_purge=SoftPurge,
+                                                  override_sticky=Unsticky,
+                                                  use_hard_purge=HardPurge,
                                                   module_rollback_map=Map } ) ->
-    NewEntry = {beam_lib:version(Binary), Binary},
-    NextVsn  = next_vsn( Module, Map ),
-    ok = create_cache_file( CD, Module, NextVsn, Binary ),
-    case proplists:get_value( Module, Map ) of
-        undefined -> % Add binary to rollback server and load binary into memory
-            case libhotswap_util:reload( Module, Binary, SoftPurge ) of
+    NextVsn = next_vsn( Module, Binary, Map ),
+    NewBinary = set_vsn( NextVsn, Binary ),
+    NewEntry = {NextVsn, NewBinary},
+    ok = create_cache_file( CD, Module, NextVsn, NewBinary ),
+    case 
+        {
+          libhotswap_util:check_unsticky( Module, Unsticky ),
+          proplists:get_value( Module, Map )
+        }
+    of
+        % If module is sticky, and we couldn't force it, error out.
+        {{error,_}=Error,_} -> {reply, Error, State};
+
+        % Otherwise, add binary to rollback server and load binary into memory
+        {ok, undefined} ->
+            case libhotswap_util:reload( Module, NewBinary, HardPurge ) of
                 ok ->
                     NewMod = {Module, [NewEntry]},
-                    NewState = State#state{module_rollback_map=[NewMod|Map]}, 
+                    NewState = State#state{module_rollback_map=[NewMod|Map]},
                     {reply, ok, NewState};
                 {error,_}=Error ->
                     {reply, Error, State}
             end;
-        Stack ->
-            case libhotswap_util:reload( Module, Binary, SoftPurge ) of
+        {ok, Stack} ->
+            case libhotswap_util:reload( Module, NewBinary, HardPurge ) of
                 ok ->
-                    {Save, PurgeSet} = lists:split( Max, [NewEntry|Stack] ),
+                    {Save, PurgeSet} = safe_split( Max, [NewEntry|Stack] ),
                     ok = purge_cache_files( CD, Module, PurgeSet ),
                     NewMap = lists:keyreplace( Module, 1, Map, {Module,Save} ),
                     NewState = State#state{module_rollback_map=NewMap},
@@ -254,7 +273,7 @@ handle_call_hotswap_all( State ) ->
 %% @end
 handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
                                                rollback_length=Max,
-                                               use_soft_purge=SoftPurge,
+                                               use_hard_purge=HardPurge,
                                                module_rollback_map=Map } )
                                          when is_integer( N ) andalso N >= 0 ->
     case proplists:get_value( Module, Map ) of
@@ -264,20 +283,21 @@ handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
                 true -> 
                     ok = purge_cache_files( CD, Module, Stack ),
                     case code:get_object_code( Module ) of
-                        {_, Binary, _} -> 
-                            NewMap = lists:keyreplace( Module, 1, Map, {Module,[]} ),
+                        {_, Binary, _} ->
+                            NewItem = {Module, []}, 
+                            NewMap = lists:keyreplace( Module, 1, Map, NewItem ),
                             NewState = State#state{module_rollback_map=NewMap},
-                            Return = libhotswap_util:reload( Module, Binary, SoftPurge ),
+                            Return = libhotswap_util:reload( Module, Binary, HardPurge ),
                             {reply, Return, NewState};
                         error -> 
                             {reply, {error, bad_module}, State}
                     end;
                 false ->
-                    {Top, [{_,Binary}|_]=NewStack} = lists:split( N-1, Stack ),
+                    {Top, [{_,Binary}|_]=NewStack} = safe_split( N-1, Stack ),
                     ok = purge_cache_files( CD, Module, Top ),
                     NewMap = lists:keyreplace( Module, 1, Map, {Module,NewStack} ),
                     NewState = State#state{module_rollback_map=NewMap},
-                    Return = libhotswap_util:reload( Module, Binary, SoftPurge ),
+                    Return = libhotswap_util:reload( Module, Binary, HardPurge ),
                     {reply, Return, NewState}
             end
     end.
@@ -339,6 +359,7 @@ purge_cache_files( CD, Module, [{Vsn,_Binary}|R] ) ->
 create_cache_file( CD, Module, Vsn, Binary ) ->
     FilePath = lists:flatten( [CD,"/",atom_to_list(Module),
                                 "_",integer_to_list(Vsn),".beam"] ),
+    error_logger:info_msg( "Creating cache file: ~p~n", [ FilePath ] ),
     file:write_file( FilePath, Binary ).     
 
 %% ===================================================================
@@ -347,11 +368,11 @@ create_cache_file( CD, Module, Vsn, Binary ) ->
 
 %% @hidden
 %% @doc 
-unload_all( #state{use_soft_purge=SoftPurge, module_rollback_map=Map} ) ->
+unload_all( #state{use_hard_purge=HardPurge, module_rollback_map=Map} ) ->
     Unload = fun( {Module,_} ) ->
                 case code:get_object_code( Module ) of
                     {_Mod, Binary, _Dir} -> 
-                        libhotswap_util:reload( Module, Binary, SoftPurge );
+                        libhotswap_util:reload( Module, Binary, HardPurge );
                     _ -> ignore
                 end
              end,
@@ -362,11 +383,14 @@ unload_all( #state{use_soft_purge=SoftPurge, module_rollback_map=Map} ) ->
 %%   into the code server and perform a soft or hard purge of the current 
 %%   version loaded. Typically done when the server is started up.
 %% @end
-hotswap_all( #state{use_soft_purge=SoftPurge, module_rollback_map=Map} ) ->
+hotswap_all( #state{use_hard_purge=HardPurge,
+                    override_sticky=Unsticky, 
+                    module_rollback_map=Map} ) ->
     PerformSwap = fun( {Module, RollbackStack} ) ->
+                          libhotswap_util:check_unsticky( Module, Unsticky ),
                           case RollbackStack of
                               [{_Vsn,Binary}|_] ->
-                                libhotswap_util:reload(Module,Binary,SoftPurge);
+                                libhotswap_util:reload(Module,Binary,HardPurge);
                               _ -> ignore
                           end
                   end,
@@ -403,10 +427,34 @@ filename_version( Filename ) ->
 
 %% @hidden
 %% @doc We create a new internal version for saving to the cache.
-next_vsn( Module, Map ) ->
+next_vsn( Module, Binary, Map ) ->
     case proplists:get_value( Module, Map ) of
-        undefined -> 0;
-        [] -> 0;
+        undefined -> 
+            {ok, {_Mod,[Vsn]}} = beam_lib:version(Binary),
+            Vsn+1;
+        [] ->
+            {ok, {_Mod,[Vsn]}} = beam_lib:version(Binary),
+            Vsn+1;
         [{Vsn,_}|_] -> Vsn+1
     end.
+
+%% @hidden
+%% @doc Set the VSN of the Binary module.
+set_vsn( NewVsn, Binary ) ->
+    {ok, AST} = libhotswap_util:beam_to_ast( Binary ),
+    NewAST = lists:foldl( fun({attribute,L,vsn,_},Ast)-> 
+                                  [{attribute,L,vsn,NewVsn}|Ast];
+                             (Term, Ast) -> [Term|Ast]
+                          end, [], lists:reverse(AST) ),
+    {ok, NewBinary} = libhotswap_util:ast_to_beam( NewAST ),
+    NewBinary.
+
+%% @private
+%% @doc Safely split a list (i.e. if N > length(List) then lists:split/2 throws
+%%   an error).
+%% @end
+safe_split( N, List ) -> safe_split( N, List, [] ).
+safe_split( 0, L, R ) -> {lists:reverse(R,[]), L};
+safe_split( _, [], R ) -> {lists:reverse(R,[]), []};
+safe_split( N, [H|T], R ) -> safe_split( N-1, T, [H|R] ).
 
