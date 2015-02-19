@@ -38,7 +38,7 @@
             rollback_length,
             use_hard_purge,
             cache_dir,
-            
+
             % State
             module_rollback_map = []
          }).
@@ -50,20 +50,20 @@
 %% @doc Start the HotSwap server. This will keep track of any in-memory changes
 %%   and keep on-disk backups if desired.
 %% @end
-start_link() -> 
+start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Stop the HotSwap Server.
 stop() ->
     gen_server:call( ?MODULE, stop ).
 
-%% @doc Stop the HotSwap server and if desired, load the old versions that 
+%% @doc Stop the HotSwap server and if desired, load the old versions that
 %%   were in place before the server was started.
 %% @end
-stop( OverrideUnloadOnShutdown ) -> 
+stop( OverrideUnloadOnShutdown ) ->
     gen_server:call( ?MODULE, {stop, OverrideUnloadOnShutdown} ).
 
-%% @doc Check if a local instance is registered and running, and return it's 
+%% @doc Check if a local instance is registered and running, and return it's
 %%   Process Identifier, otherwise return false.
 %% @end
 local_instance() ->
@@ -78,7 +78,7 @@ local_instance() ->
 get_object_code( Module ) ->
     gen_server:call( ?MODULE, {get_object_code, Module} ).
 
-%% @doc Will reload a module into memory and save it in the newest position 
+%% @doc Will reload a module into memory and save it in the newest position
 %%   for rollback if enabled.
 %% @end
 hotswap( Module, Binary ) ->
@@ -104,18 +104,18 @@ rollback( Module, N ) ->
 %%%===================================================================
 
 %% @private
-%% @doc Load up the 
-init([]) -> 
+%% @doc Load up the
+init([]) ->
     InitState = build_init_env(),
     validate_state( InitState ).
 
 %% @private
 %% @doc Handle all API functionality for the libhotswap_server.
-handle_call(Request, _From, State) -> 
+handle_call(Request, _From, State) ->
     case Request of
-        {stop, Override} -> 
+        {stop, Override} ->
             handle_call_stop( Override, State );
-        stop -> 
+        stop ->
             handle_call_stop( State#state.unload_on_shutdown, State );
         {get_object_code, Module } ->
             handle_call_get_object_code( Module, State );
@@ -170,7 +170,7 @@ validate_state( #state{cache_dir=CD, reload_on_startup=Reload}=InitState ) ->
 
 %% @hidden
 %% @doc Ensure the directory exists for cache storage.
-verify_cache_dir( Dir ) -> 
+verify_cache_dir( Dir ) ->
     Path = case filename:split( Dir ) of
                [[$~]|Rest] -> filename:join([os:getenv("HOME")]++Rest);
                _          -> Dir
@@ -187,7 +187,7 @@ verify_cache_dir( Dir ) ->
 
 %% @hidden
 %% @doc On stop, we will return we are shutting down, but before so: we may
-%%   need to remove all the cached files, and revert all modules to their 
+%%   need to remove all the cached files, and revert all modules to their
 %%   original state.
 %% @end
 handle_call_stop( UnloadOnShutdown, #state{module_rollback_map=Map}=State ) ->
@@ -199,76 +199,43 @@ handle_call_stop( UnloadOnShutdown, #state{module_rollback_map=Map}=State ) ->
         true  -> unload_all( State );
         false -> ok
     end,
-    {stop, normal, ok, State#state{module_rollback_map=NewMap}}. 
+    {stop, normal, ok, State#state{module_rollback_map=NewMap}}.
 
 %% @hidden
 %% @doc Get the currently loaded module code, and mimic code:get_object_code/1.
-handle_call_get_object_code( Mod, State=#state{ cache_dir=CD, 
+handle_call_get_object_code( Mod, State=#state{ cache_dir=CD,
                                                 module_rollback_map=Map } ) ->
     case proplists:get_value( Mod, Map ) of
-       undefined -> % If not found, go to code server. 
+       undefined -> % If not found, go to code server.
             DefaultRet = code:get_object_code( Mod ),
             {reply, DefaultRet, State};
-       [{_,Binary}|_] -> % Grab top version on the stack. 
+       [{_,Binary}|_] -> % Grab top version on the stack.
             {reply, {Mod,Binary,CD}, State}
-    end. 
+    end.
 
 %% @hidden
 %% @doc Perform a hotswap given a module and it's new binary. This will create
 %%   a new cached file, and remove any that fall off the end of the rollback
 %%   length.
 %% @end
-handle_call_hotswap( Module, Binary, State=#state{ cache_dir=CD,
-                                                  rollback_length=Max,
-                                                  override_sticky=Unsticky,
-                                                  use_hard_purge=HardPurge,
-                                                  module_rollback_map=Map } ) ->
+handle_call_hotswap( Module, Binary, State=#state{cache_dir=CD,
+                                                  module_rollback_map=Map} ) ->
     NextVsn = next_vsn( Module, Binary, Map ),
     NewBinary = set_vsn( NextVsn, Binary ),
-    NewEntry = {NextVsn, NewBinary},
     ok = create_cache_file( CD, Module, NextVsn, NewBinary ),
-    case 
-        {
-          libhotswap_util:check_unsticky( Module, Unsticky ),
-          proplists:get_value( Module, Map )
-        }
-    of
-        % If module is sticky, and we couldn't force it, error out.
-        {{error,_}=Error,_} -> {reply, Error, State};
-
-        % Otherwise, add binary to rollback server and load binary into memory
-        {ok, undefined} ->
-            case libhotswap_util:reload( Module, NewBinary, HardPurge ) of
-                ok ->
-                    NewMod = {Module, [NewEntry]},
-                    NewState = State#state{module_rollback_map=[NewMod|Map]},
-                    {reply, ok, NewState};
-                {error,_}=Error ->
-                    {reply, Error, State}
-            end;
-        {ok, Stack} ->
-            case libhotswap_util:reload( Module, NewBinary, HardPurge ) of
-                ok ->
-                    {Save, PurgeSet} = safe_split( Max, [NewEntry|Stack] ),
-                    ok = purge_cache_files( CD, Module, PurgeSet ),
-                    NewMap = lists:keyreplace( Module, 1, Map, {Module,Save} ),
-                    NewState = State#state{module_rollback_map=NewMap},
-                    {reply, ok, NewState};
-                {error,_}=Error ->
-                    {reply, Error, State}
-            end
-    end.
+    {Return, NewState} = perform_hotswap( Module, NextVsn, NewBinary, State ),
+    {reply, Return, NewState}.
 
 %% @hidden
-%% @doc Perform a reload of all modules in the cache to their "newest" 
+%% @doc Perform a reload of all modules in the cache to their "newest"
 %%   versions. This is performed on startup by default, unless turned off.
 %% @end
-handle_call_hotswap_all( State ) -> 
+handle_call_hotswap_all( State ) ->
     {reply, hotswap_all( State ), State}.
-    
+
 %% @hidden
 %% @doc Roll a module back and reload it into memory. This has the effect
-%%   of removing all rolled-back cached data as well (i.e. you can't 
+%%   of removing all rolled-back cached data as well (i.e. you can't
 %%   unrollback).
 %% @end
 handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
@@ -277,27 +244,24 @@ handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
                                                module_rollback_map=Map } )
                                          when is_integer( N ) andalso N >= 0 ->
     case proplists:get_value( Module, Map ) of
-        undefined -> {reply, {error, missing_module}, State};
+        undefined ->
+            {reply, {error, missing_module}, State};
         Stack ->
-            case length(Stack) >= Max of
-                true -> 
-                    ok = purge_cache_files( CD, Module, Stack ),
-                    case code:get_object_code( Module ) of
-                        {_, Binary, _} ->
-                            NewItem = {Module, []}, 
-                            NewMap = lists:keyreplace( Module, 1, Map, NewItem ),
-                            NewState = State#state{module_rollback_map=NewMap},
-                            Return = libhotswap_util:reload( Module, Binary, HardPurge ),
-                            {reply, Return, NewState};
-                        error -> 
-                            {reply, {error, bad_module}, State}
-                    end;
-                false ->
-                    {Top, [{_,Binary}|_]=NewStack} = safe_split( N-1, Stack ),
+            case {N >= length(Stack), N >= Max} of
+                {false, false} ->
+                    % If we are rolling back to a state we can recall, perform
+                    % the rollback and wipe all forgotten state.
+                    {Top, [{_,Binary}|_]=NewStack} = safe_split( N, Stack ),
+                    Return = libhotswap_util:reload( Module, Binary, HardPurge ),
                     ok = purge_cache_files( CD, Module, Top ),
                     NewMap = lists:keyreplace( Module, 1, Map, {Module,NewStack} ),
                     NewState = State#state{module_rollback_map=NewMap},
-                    Return = libhotswap_util:reload( Module, Binary, HardPurge ),
+                    {reply, Return, NewState};
+                _ ->
+                    % If either case is true, we are rolling back the whole
+                    % stack; we are purging the module's cache and reseting to
+                    % the code server's record of the module.
+                    {Return, NewState} = reset_module( Module, Stack, State ),
                     {reply, Return, NewState}
             end
     end.
@@ -310,15 +274,15 @@ handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
 %% @doc Load the data already in the cache directory for use by the local
 %%   libhotswap code server wrapper. This cache will have multiple rollback
 %%   versions in memory for swap out. This will not override them on the code
-%%   server, just load them into the wrapper's memory. 
-%% @end 
+%%   server, just load them into the wrapper's memory.
+%% @end
 load_all_cache_files( CacheDirectory ) ->
     RegEx = ".*\.beam", % Scan over just BEAM files
     Recursive = true,   % Sure, just check everything if the user messed around
-    Init = [],          % Proplist state [ {Module, [{Vsn,Beam}|_]} | _ ] 
+    Init = [],          % Proplist state [ {Module, [{Vsn,Beam}|_]} | _ ]
     Fun = fun( BeamFile, Map ) ->
                  case load_cache_file( BeamFile ) of
-                    {Module, Beam, _Dir} -> 
+                    {Module, Beam, _Dir} ->
                         Stack = proplists:get_value( Module, Map, [] ),
                         Vsn = filename_version( BeamFile ),
                         BackwardsStack = lists:sort ([{Vsn,Beam}|Stack] ),
@@ -333,9 +297,9 @@ load_all_cache_files( CacheDirectory ) ->
 %% @doc Load the beam file from disk in the same way code:get_object_code/1
 %%   works (i.e. keep return type signature similar).
 %% @end
-load_cache_file( BeamFile ) -> 
+load_cache_file( BeamFile ) ->
     case file:read_file( BeamFile ) of
-        {ok, Beam} -> 
+        {ok, Beam} ->
             Info = beam_lib:info( Beam ),
             case proplists:get_value( module, Info ) of
                 undefined -> {error, undefined};
@@ -355,23 +319,66 @@ purge_cache_files( CD, Module, [{Vsn,_Binary}|R] ) ->
 
 
 %% @hidden
-%% @doc Create a cache file on 
+%% @doc Create a cache file on
 create_cache_file( CD, Module, Vsn, Binary ) ->
     FilePath = lists:flatten( [CD,"/",atom_to_list(Module),
                                 "_",integer_to_list(Vsn),".beam"] ),
     error_logger:info_msg( "Creating cache file: ~p~n", [ FilePath ] ),
-    file:write_file( FilePath, Binary ).     
+    file:write_file( FilePath, Binary ).
 
 %% ===================================================================
 %% Code Server modifications
 %% ===================================================================
 
 %% @hidden
-%% @doc 
+%% @doc Perform a hotswap of a module with a particular version number and
+%%   binary. Assumes the cache has been taken care of.
+%% @end
+perform_hotswap( Module, NextVsn, NewBinary, State=#state{
+                                                 cache_dir=CD,
+                                                 rollback_length=Max,
+                                                 override_sticky=Unsticky,
+                                                 use_hard_purge=HardPurge,
+                                                 module_rollback_map=Map} ) ->
+    NewEntry = {NextVsn, NewBinary},
+    case
+        {
+          libhotswap_util:check_unsticky( Module, Unsticky ),
+          proplists:get_value( Module, Map )
+        }
+    of
+        % If module is sticky, and we couldn't force it, error out.
+        {{error,_}=Error,_} -> {Error, State};
+
+        % Otherwise, add binary to rollback server and load binary into memory
+        {ok, undefined} ->
+            case libhotswap_util:reload( Module, NewBinary, HardPurge ) of
+                ok ->
+                    NewMod = {Module, [NewEntry]},
+                    NewState = State#state{module_rollback_map=[NewMod|Map]},
+                    {ok, NewState};
+                {error,_}=Error ->
+                    {Error, State}
+            end;
+        {ok, Stack} ->
+            case libhotswap_util:reload( Module, NewBinary, HardPurge ) of
+                ok ->
+                    {Save, PurgeSet} = safe_split( Max, [NewEntry|Stack] ),
+                    ok = purge_cache_files( CD, Module, PurgeSet ),
+                    NewMap = lists:keyreplace( Module, 1, Map, {Module,Save} ),
+                    NewState = State#state{module_rollback_map=NewMap},
+                    {ok, NewState};
+                {error,_}=Error ->
+                    {Error, State}
+            end
+    end.
+
+%% @hidden
+%% @doc
 unload_all( #state{use_hard_purge=HardPurge, module_rollback_map=Map} ) ->
     Unload = fun( {Module,_} ) ->
                 case code:get_object_code( Module ) of
-                    {_Mod, Binary, _Dir} -> 
+                    {_Mod, Binary, _Dir} ->
                         libhotswap_util:reload( Module, Binary, HardPurge );
                     _ -> ignore
                 end
@@ -380,11 +387,11 @@ unload_all( #state{use_hard_purge=HardPurge, module_rollback_map=Map} ) ->
 
 %% @hidden
 %% @doc Loop through all cached modules and reload all of their newest versions
-%%   into the code server and perform a soft or hard purge of the current 
+%%   into the code server and perform a soft or hard purge of the current
 %%   version loaded. Typically done when the server is started up.
 %% @end
 hotswap_all( #state{use_hard_purge=HardPurge,
-                    override_sticky=Unsticky, 
+                    override_sticky=Unsticky,
                     module_rollback_map=Map} ) ->
     PerformSwap = fun( {Module, RollbackStack} ) ->
                           libhotswap_util:check_unsticky( Module, Unsticky ),
@@ -397,7 +404,7 @@ hotswap_all( #state{use_hard_purge=HardPurge,
     lists:foreach( PerformSwap, Map ).
 
 %% @hidden
-%% @doc Loop through all cached files and delete them from the on-disk 
+%% @doc Loop through all cached files and delete them from the on-disk
 %%   directory.
 %% @end
 purge_all( #state{cache_dir=CD, module_rollback_map=Map} ) ->
@@ -406,18 +413,36 @@ purge_all( #state{cache_dir=CD, module_rollback_map=Map} ) ->
             end,
     lists:foreach( Purge, Map ).
 
+%% @hidden
+%% @doc Reset the module and purge all LibHotSwap state on the module.
+reset_module( Module, Stack, State=#state{ cache_dir=CD,
+                                           use_hard_purge=HardPurge,
+                                           module_rollback_map=Map } ) ->
+    ok = purge_cache_files( CD, Module, Stack ),
+    case code:get_object_code( Module ) of
+        {_, Binary, _} ->
+            NewItem = {Module, []},
+            NewMap = lists:keyreplace( Module, 1, Map, NewItem ),
+            NewState = State#state{module_rollback_map=NewMap},
+            Return = libhotswap_util:reload( Module, Binary, HardPurge ),
+            {Return, NewState};
+        error ->
+            Return = {error,bad_module},
+            {Return, State}
+    end.
+
 %% ===================================================================
 %% Local Utility Functionality
 %% ===================================================================
 
 %% @hidden
-%% @doc We save cache files like: module_version.beam. This returns the 
+%% @doc We save cache files like: module_version.beam. This returns the
 %%   version as an integer.
 %% @end
 filename_version( Filename ) ->
     Name = filename:rootname( filename:basename( Filename ) ),
     case string:tokens( Name, "_" ) of
-        [_Module,Version] -> 
+        [_Module,Version] ->
             case string:to_integer( Version ) of
                 {Int,_} when is_integer(Int) -> Int;
                 _ -> 0
@@ -429,7 +454,7 @@ filename_version( Filename ) ->
 %% @doc We create a new internal version for saving to the cache.
 next_vsn( Module, Binary, Map ) ->
     case proplists:get_value( Module, Map ) of
-        undefined -> 
+        undefined ->
             {ok, {_Mod,[Vsn]}} = beam_lib:version(Binary),
             Vsn+1;
         [] ->
@@ -442,7 +467,7 @@ next_vsn( Module, Binary, Map ) ->
 %% @doc Set the VSN of the Binary module.
 set_vsn( NewVsn, Binary ) ->
     {ok, AST} = libhotswap_util:beam_to_ast( Binary ),
-    NewAST = lists:foldl( fun({attribute,L,vsn,_},Ast)-> 
+    NewAST = lists:foldl( fun({attribute,L,vsn,_},Ast)->
                                   [{attribute,L,vsn,NewVsn}|Ast];
                              (Term, Ast) -> [Term|Ast]
                           end, [], lists:reverse(AST) ),

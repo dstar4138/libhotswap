@@ -53,18 +53,17 @@ LibHotSwap also wraps Erlang's natural hot-code-reloading mechanism to provide
 more fine-grain module and function-level injection capabilities.
 
 ```erlang
-> io:nl(). % print a new line
- 
+> libhotswap_dummy:test(). % just return ok.
 ok
-> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[1]} ).
-{ok, 220424659779942659805372826583560828130}
-> io:nl(). % Surgical injection of code in the front of the first function clause.
+> MFA = {libhotswap_dummy, test, 0}.
+> libhotswap:inject_in_function( MFA, fun()-> io:format("hi~n") end, {0,[0]} ).
+{ok, 43}
+> libhotswap_dummy:test(). % Surgical injection of code in the front of the first function clause.
 hi
- 
 ok
-> libhotswap:rewrite( {io,nl,0}, TestFun ). % Brute force, function overwrites
-{ok, 220424659779942659805372826583560828131}
-> io:nl(). % Brute force, function overwrite.
+> libhotswap:rewrite( MFA, TestFun ). % Brute force, function overwrites
+{ok, 43}
+> libhotswap_dummy:test(). % Brute force, function overwrite.
 test
 >
 ```
@@ -73,29 +72,30 @@ However, if you performed two modifications to the same module, only the final
 one would take, as the Erlang Code server reads the module's object code from
 the path each time LibHotSwap updates the one in memory. LibHotSwap therefore
 bundles a server which wraps the code server with an on-disk cache for saving
-multiple versions of modifications. This even gives us rollback capability:
+multiple versions of modifications. This even gives us version rollback
+capability:
 
 ```erlang
-> l(io). % Reload io.beam from path.
+> l(libhotswap_dummy). % Reload from disk.
 ok
-> libhotswap:start_server().
+> libhotswap_dummy:test(). % Now just returns ok again.
 ok
-> libhotswap:vsn( io ). % Check Module information like version number
-{ok, 220424659779942659805372826583560828129}
-> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[0]} ).
-{ok, 220424659779942659805372826583560828130}.
-> libhotswap:inject_in_function( {io,nl,0}, fun()-> io:format("hi~n") end, {0,[0]} ).
-{ok, 220424659779942659805372826583560828131}.
-> io:nl().
+> libhotswap:start_server(). % Start libhotswap's code server wrapper
+ok
+> libhotswap:vsn( libhotswap_dummy ). % Validate version number of our test module
+{ok, 42}
+> libhotswap:inject_in_function( MFA, fun()-> io:format("hi~n") end, {0,[0]} ).
+{ok, 43}.
+> libhotswap:inject_in_function( MFA, fun()-> io:format("hi~n") end, {0,[0]} ).
+{ok, 44}.
+> libhotswap_dummy:test(). % Both injected one in front of the other.
 hi
 hi
-
 ok
-> libhotswap:rollback( io ).
-{ok, 220424659779942659805372826583560828130}.
-> io:nl().
+> libhotswap:rollback( libhotswap_dummy ). % Reload the previous version.
+{ok, 43}.
+> libhotswap_dummy:test().
 hi
-
 ok
 >
 ```
@@ -103,6 +103,10 @@ ok
 There is also a `libhotswap:rollback/2` function provided if you want to roll 
 back multiple versions. These functions will fail with an error if the 
 LibHotSwap Server is not running.
+
+Also note that LibHotSwap can do this to the standard library or any other
+loaded Erlang module. We do not allow this by default (for security sake), but
+it can be configured via the application settings before starting the server.
 
 ## Integrating LibHotSwap Into an Application ##
 
