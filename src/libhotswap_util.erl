@@ -183,8 +183,9 @@ ast_by_mfa( {M,_,_}=MFA ) ->
 %% @doc Inject attributes such as exports/imports/etc. into the top of the
 %%   module.
 %% @end
--spec inject_attributes( [Attr], ast() ) -> {ok, ast()} | {error, badarg}
-            when Attr :: {attribute, integer(), atom(), term()}.
+-spec inject_attributes( [Attr], ast() ) -> {ok, ast()} | {error, Reason}
+            when Attr :: {attribute, integer(), atom(), term()},
+                 Reason :: badmodule | noexports.
 inject_attributes( Attributes, FullAST ) ->
     case % Split after module attribute, otherwise we'll have issues.
         lists:splitwith( fun({attribute,_,export,_}) -> false;
@@ -200,7 +201,7 @@ inject_attributes( Attributes, FullAST ) ->
 %%   This means we should take sain defaults (soft_purge) and keep minimal
 %%   backups (just what code:load_module/2 allows).
 %% @end
--spec reload( module(), binary() ) -> ok | {error, not_purged | on_load}.
+-spec reload( atom(), binary() ) -> ok | {error, not_purged | on_load}.
 reload( Module, Binary ) -> reload( Module, Binary, false ).
 
 %% @private

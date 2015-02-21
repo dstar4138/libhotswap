@@ -374,7 +374,9 @@ perform_hotswap( Module, NextVsn, NewBinary, State=#state{
     end.
 
 %% @hidden
-%% @doc
+%% @doc Revert all modules currently hotswapped back to the version the code
+%%   server has.
+%% @end
 unload_all( #state{use_hard_purge=HardPurge, module_rollback_map=Map} ) ->
     Unload = fun( {Module,_} ) ->
                 case code:get_object_code( Module ) of
@@ -394,7 +396,7 @@ hotswap_all( #state{use_hard_purge=HardPurge,
                     override_sticky=Unsticky,
                     module_rollback_map=Map} ) ->
     PerformSwap = fun( {Module, RollbackStack} ) ->
-                          libhotswap_util:check_unsticky( Module, Unsticky ),
+                          _ = libhotswap_util:check_unsticky( Module, Unsticky ),
                           case RollbackStack of
                               [{_Vsn,Binary}|_] ->
                                 libhotswap_util:reload(Module,Binary,HardPurge);

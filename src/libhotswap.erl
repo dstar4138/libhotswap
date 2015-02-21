@@ -5,7 +5,7 @@
 -export([start_server/0, stop_server/0, check_server/0]).
 -export([rollback/1,rollback/2]).
 
--export([vsn/1,version/1,exports/1]).
+-export([vsn/1,exports/1]).
 -export([get_code/1,get_ast/1]).
 -export([add_export/2,remove_export/1,rewrite/2]).
 -export([inject_in_function/3]).
@@ -72,18 +72,6 @@ vsn( ModuleName ) when is_atom( ModuleName ) ->
         _  -> {error, badarg}
     end.
 
-%% @doc Get the developer provided version string of the module.
--spec version( atom() ) -> {ok, string()} | {error, term()}.
-version( ModuleName ) when is_atom( ModuleName ) -> 
-    MI = erlang:apply( ModuleName, module_info, [] ),
-    case 
-        catch [ VS || {compile, Cs} <- MI, {version, VS} <- Cs ]
-    of
-        [VS] when is_list(VS) -> {ok, VS};
-        [] -> {error, noversion};
-        _  -> {error, badarg}
-    end.
-
 %% @doc Get the list of exports for a provided module.
 -spec exports( atom() ) -> {ok, [mfa()]} | {error, term()}.
 exports( ModuleName ) when is_atom( ModuleName )  ->  
@@ -109,7 +97,8 @@ exports( ModuleName ) when is_atom( ModuleName )  ->
 -spec get_code( mfa() | fun() ) -> {ok, string()} | {error, Error}
             when Error :: 'badarg'    | % term is not an mfa/fun.
                           'missing'   | % mfa() could not be found.
-                          'outofscope'. % fun() has a non-empty reference env.
+                          'outofscope'| % fun() has a non-empty reference env.
+                          'named'     . % fun() is named, which is outofscope.
 get_code( Term ) -> 
     case get_ast( Term ) of
         {ok, AST} -> libhotswap_util:ast_to_code( AST );
@@ -123,7 +112,8 @@ get_code( Term ) ->
 -spec get_ast( mfa() | term() ) -> {ok, ast()} | {error, Error}
             when Error :: 'badarg'    | % term is not an mfa/fun.
                           'missing'   | % mfa() could not be found.
-                          'outofscope'. % fun() has a non-empty reference env.
+                          'outofscope'| % fun() has a non-empty reference env.
+                          'named'     . % fun() is named, which is outofscope.
 get_ast( {Module, _, _} = MFA ) -> 
     case libhotswap_util:get_ast( Module ) of
         {ok, AST} -> libhotswap_util:ast_by_mfa( AST, MFA );
@@ -235,10 +225,12 @@ add_new_clause( {Module,Fun,Arity}, Func, Order ) ->
             end
     end.
 
-%%% ============
-%%% Private
-%%% ============
 
+%% ===========================================================================
+%% Private functionality 
+%% ===========================================================================
+
+%% @hidden
 %% @doc Load a new version of a module (MFA) given a new AST. This might be
 %%   ripe for improvement (such as with an ondisk cache of all updated 
 %%   versions for easy rollback or analysis.
@@ -255,21 +247,21 @@ reload( Module, AST ) ->
       Error -> Error
     end. 
 
-%% @private
+%% @hidden
 %% @doc Returns an AST splitter which attempts to find the exported MFA. 
 find_attr( Fun, Attr ) -> 
     fun( {attribute, _Line, export, Exs} ) -> not lists:member({Fun,Attr}, Exs);
        ( _ ) -> true
     end.
 
-%% @private
+%% @hidden
 %% @doc Returns an AST splitter which attempts to find the function by MFA.
 find_func( Fun, Attr ) ->
     fun( {function,_Line,F,A,_} ) when F=:=Fun andalso A=:=Attr -> false;
        ( _ ) -> true
     end.
 
-%% @private
+%% @hidden
 %% @doc Break off the {eof,Line} token and add this to the AST list to the end
 %%   correctly (like when we add functions to a module).
 %% @end
@@ -279,7 +271,7 @@ add_before_eof( ModuleAST, ASTs ) ->
                                    end , ModuleAST ),
     Front++ASTs++EOF.
 
-%% @private
+%% @hidden
 %% @doc Generate a function AST given a possible 'fun' AST. In otherwords, name
 %%   the function. This assumes you are passing in valid function names (atom)
 %%   and valid arity for the described clauses.
@@ -293,14 +285,14 @@ generate_function_from_func( F, A, {function,Line,_F,A,Clauses} ) ->
     {ok, {function,Line,F,A,Clauses}};
 generate_function_from_func( _, _, _ ) -> {error, badarg}.
 
-%% @private 
+%% @hidden 
 %% @doc Check the provided func to see if it is indeed the correct arity. 
 verify_func_arity( Arity, {'fun',_,{clauses,[{clause,_,Args,_,_}|_]}} ) 
                          when length(Args)=:=Arity -> ok;
 verify_func_arity( Arity, {function,_,_,Arity,_} ) -> ok;
 verify_func_arity( _, _ ) -> error.
 
-%% @private
+%% @hidden
 %% @doc Pull out the Expression list from a func. This is used to inject the
 %%   func's functionality into another function. Think aspect based programming.
 %% @end
@@ -308,7 +300,7 @@ get_ast_body_exprs( {'fun',_,{clauses,[{clause,_,[],_,Exprs}]}} ) -> {ok, Exprs}
 get_ast_body_exprs( {'function',_,_,0,[{clause,_,[],Exprs}]} )    -> {ok, Exprs};
 get_ast_body_exprs( _ ) -> {error, badarg}.
 
-%% @private
+%% @hidden
 %% @doc Pull out the clauses ffrom a Func, for possible insertion into another
 %%   function.
 %% @end
@@ -316,7 +308,7 @@ get_ast_body_clauses( {'fun',_,{clauses,Clauses}} ) -> {ok, Clauses};
 get_ast_body_clauses( {'function',_,_,_,Clauses} )  -> {ok, Clauses};
 get_ast_body_clauses( _ ) -> {error, badarg}.
 
-%% @private
+%% @hidden
 %% @doc Given a function AST and a set of AST expressions, inject them into the 
 %%   the function given a pattern.
 %% @end
@@ -352,7 +344,7 @@ order_injector( Things, Index ) ->
             Front++Things++Back
     end.
 
-%% @private 
+%% @hidden 
 %% @doc Given a function AST and a set of AST clauses, inject them via the index
 %%   provided by the Order.
 %% @end

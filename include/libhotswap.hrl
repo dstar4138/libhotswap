@@ -1,4 +1,4 @@
--type ast()  :: erl_parse:erl_parse().
+-type ast()  :: erl_parse:abstract_form().
 -type vsn()  :: pos_integer().
 -type func() :: string() | fun() | pfunc().
 -type pfunc()   :: {'fun',1,_} | {'function',_,_,_,_}.

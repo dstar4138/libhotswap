@@ -58,7 +58,7 @@ ok
 > MFA = {libhotswap_dummy, test, 0}.
 > libhotswap:inject_in_function( MFA, fun()-> io:format("hi~n") end, {0,[0]} ).
 {ok, 43}
-> libhotswap_dummy:test(). % Surgical injection of code in the front of the first function clause.
+> libhotswap_dummy:test(). % Surgically insert code in front of first clause.
 hi
 ok
 > libhotswap:rewrite( MFA, TestFun ). % Brute force, function overwrites
