@@ -24,6 +24,11 @@
 % Private Exports
 -export( [ reload/3 ] ).
 
+% Testing Exports
+-export( [ prime_injection/0,
+           injected/0,injected_clause1/1,injected_clause2/1,
+           test_injection/0 ] ).
+
 %% @doc Check if the module is in a sticky directory (as is the case with stdlib
 %%   modules). If it is, and you are want to force it, it'll make it unsticky 
 %%   for modification by libhotswap. This is dangerous, for very understandable 
@@ -247,4 +252,15 @@ validate_fun_or_function( _ )                      -> {error, badarg}.
 to_fun( Clauses ) ->
     SyntaxTree = erl_syntax:fun_expr( Clauses ),
     erl_syntax:revert( SyntaxTree ). % Convert to the erl_parse tree form.
+
+
+%% @private
+%% @doc Used for EUnit testing. We provide this generic function injected/0 
+%%   which we can test for after running the function which has been modified.
+%% @end
+prime_injection() -> put(injection_testing,0),ok.
+injected() -> put(injection_testing,get(injection_testing)+1).
+injected_clause1(42) -> 24.
+injected_clause2(24) -> 42.
+test_injection() -> get(injection_testing).
 

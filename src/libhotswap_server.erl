@@ -8,7 +8,7 @@
 -export([local_instance/0,
          hotswap/2, hotswap_all/0,
          get_object_code/1,
-         rollback/2
+         rollback/2, purge/0
         ]).
 
 %% gen_server callbacks
@@ -99,6 +99,10 @@ hotswap_all() ->
 rollback( Module, N ) ->
     gen_server:call( ?MODULE, {rollback, Module, N} ).
 
+%% @doc Rolls back all modules to original, and clears the local cache.
+purge() ->
+    gen_server:call( ?MODULE, purge ).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -125,6 +129,8 @@ handle_call(Request, _From, State) ->
             handle_call_hotswap_all( State );
         {rollback, Module, N } ->
             handle_call_rollback( Module, N, State );
+        purge ->
+            handle_call_purge( State );
         Unknown ->
             error( Unknown )
     end.
@@ -265,6 +271,16 @@ handle_call_rollback( Module, N, State=#state{ cache_dir=CD,
                     {reply, Return, NewState}
             end
     end.
+
+%% @hidden
+%% @doc Runs through all modules and unloads the hotswaped versions and replaces
+%%   them with the originals, and then purges all rollbacks from the cache.
+%% @end
+handle_call_purge( State ) ->
+    ok = unload_all( State ),
+    ok = purge_all( State ),
+    {reply, ok, State#state{module_rollback_map=[]}}.
+
 
 %% ===================================================================
 %%  Cache modifications

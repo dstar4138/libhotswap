@@ -10,7 +10,7 @@
             % should be outside the Erlang Code Path (e.g. code:get_path/0).
             {cache_dir, "~/.libhotswap_cache"},
 
-            % Persist on shutdown, i.e. delete cache on libhotswap:stop/n?
+            % Persist on shutdown, i.e. don't delete cache on libhotswap:stop/n?
             {persist_on_shutdown, true},
 
             % Return all overloaded modules to their original state on

@@ -296,9 +296,12 @@ verify_func_arity( _, _ ) -> error.
 %% @doc Pull out the Expression list from a func. This is used to inject the
 %%   func's functionality into another function. Think aspect based programming.
 %% @end
-get_ast_body_exprs( {'fun',_,{clauses,[{clause,_,[],_,Exprs}]}} ) -> {ok, Exprs};
-get_ast_body_exprs( {'function',_,_,0,[{clause,_,[],Exprs}]} )    -> {ok, Exprs};
+get_ast_body_exprs( {'fun',_,{clauses,[Clause]}} ) -> get_clause_exprs(Clause);
+get_ast_body_exprs( {'function',_,_,0,[Clause]} )  -> get_clause_exprs(Clause); 
 get_ast_body_exprs( _ ) -> {error, badarg}.
+get_clause_exprs( {clause,_Line,[],[],Exprs} ) -> {ok, Exprs};
+get_clause_exprs( {clause,_Line,[],Exprs} )   -> {ok, Exprs};
+get_clause_exprs( _ ) -> {error, badarg}.
 
 %% @hidden
 %% @doc Pull out the clauses ffrom a Func, for possible insertion into another

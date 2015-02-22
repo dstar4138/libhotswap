@@ -29,7 +29,9 @@ time to battle test this nor investigate ease-of-debugging mechanisms yet.
 
 LibHotSwap provides wrappers around Erlang's introspection and compilation 
 mechanisms. This is for the purpose of seeing internal representations to 
-modify them before possibly injecting back in.
+modify them before possibly injecting back in. As such, most of LibHotSwap 
+only works on modules which have been compiled with the `debug_info` option 
+turned on.
 
 ```erlang
 > TestFun = fun() -> test end.

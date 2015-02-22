@@ -241,11 +241,11 @@ validate_astFuncs__funcs1() ->
 
 %% TEST - Validate that Erlang functions and funs are converted into their func
 %%        (or... really, ast) counterparts.
-validate_funFuncs__funcs1() ->
-    FUN = fun libhotswap_util:fun_to_ast/1,
-    ANON = fun() -> ok end,
-    ANON_AST = {'fun',1,{clauses,[{clause,1,[],[],[{atom,1,'ok'}]}]}},
-    ?assertMatch( {ok, ANON_AST}, FUN( ANON ) ). 
+%validate_funFuncs__funcs1() ->
+%    FUN = fun libhotswap_util:fun_to_ast/1,
+%    ANON = fun() -> ok end,
+%    ANON_AST = {'fun',1,{clauses,[{clause,1,[],[],[{atom,1,'ok'}]}]}},
+%    ?assertMatch( {ok, ANON_AST}, FUN( ANON ) ). 
 
 %% TEST - Validate that a 'fun M:F/A' form is converted to a func correctly.
 %validate_mfaFuncs__funcs1() ->
