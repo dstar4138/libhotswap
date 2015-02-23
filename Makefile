@@ -39,5 +39,6 @@ clean:
 
 distclean: clean
 	-rm $(DEPSOLVER_PLT)
-
+	-rm -rf ebin
+	-rm -rf doc
 

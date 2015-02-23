@@ -89,8 +89,8 @@ exports( ModuleName ) when is_atom( ModuleName )  ->
 %% ===========================================================================
 
 %% @doc Get the Raw Erlang code from a loaded BEAM module. This is useful if
-%%   you want to do RegEx replacements before a `rewrite/2`, e.g. replace all
-%%   calls to `modulev1` to `modulev2`. NOTE: if the Fun() is a closure (i.e.
+%%   you want to do RegEx replacements before a `rewrite/2', e.g. replace all
+%%   calls to `modulev1' to `modulev2'. NOTE: if the Fun() is a closure (i.e.
 %%   variables are referenced which are created external to the Fun() itself
 %%   then this function will return an error.
 %% @end
@@ -106,7 +106,7 @@ get_code( Term ) ->
     end.        
 
 %% @doc Get the Abstract Syntax Tree from a loaded BEAM module. This is useful
-%%   if you want to do more advanced analysis before a `rewrite/2`, e.g. 
+%%   if you want to do more advanced analysis before a `rewrite/2', e.g. 
 %%   reordering case statements.
 %% @end
 -spec get_ast( mfa() | term() ) -> {ok, ast()} | {error, Error}
@@ -175,9 +175,9 @@ rewrite( {Module,F,A}, Func ) ->
 %%
 %%   Given a reference MFA, add the body of Func to it according to a
 %%   provided pattern. Namely, how far down the expression list for which 
-%%   of the functions clauses. For example; if the pattern was: {2, all}
+%%   of the functions clauses. For example; if the pattern was: `{2, all}'
 %%   the result would be to add the body of Func after the second line of
-%%   all clauses in MFA. If the pattern is {'end', [3,5]}, it will add the
+%%   all clauses in MFA. If the pattern is `` {'end', [3,5]} '', it will add the
 %%   body of Func at the end of the third and fifth clauses of MFA.
 %% @end
 -spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | 
