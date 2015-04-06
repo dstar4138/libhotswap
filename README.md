@@ -130,7 +130,6 @@ ok
 
 Obviously, this is dangerous and should be used sparingly.
 
-
 ## Integrating LibHotSwap Into an Application ##
 
 LibHotSwap supports [rebar](https://github.com/rebar/rebar). Just import as a
@@ -180,7 +179,7 @@ a closure):
 > Extern = fun () -> X end. % A closure over X.
 #Fun<erl_eval.20.90072148>
 > libhotswap:rewrite( MFA, Extern ).
-** exception error: no match of righ hand side value {error, outofscope}
+** exception error: no match of right hand side value {error, outofscope}
      in function libhotswap:rewrite/2 (src/libhotswap.erl, line 161)
 ```
 
@@ -188,6 +187,10 @@ This is to protect against unintended side effects from high-jacked environment
 names. It is true that in some cases it is possible for LibHotSwap to coerce
 this, but for the time-being this has not been implemented.
 
+## Contributing ##
+
+Please do! There are plenty of avenues of improvement for LibHotSwap. Suggest
+them via an issue or send a pull request for review!
 
 ## License ##
 
