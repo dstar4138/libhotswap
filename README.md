@@ -1,18 +1,18 @@
 # LibHotSwap #
 
-LibHotSwap is an Erlang library used to aid in self-modifying code: easy 
-updates of live running modules using Erlang's introspection, compiler, and 
-internal module versioning mechanism. LibHotSwap can be built into a larger 
-system with goals to become specialized or optimized, via the recognition of 
+LibHotSwap is an Erlang library used to aid in self-modifying code: easy
+updates of live running modules using Erlang's introspection, compiler, and
+internal module versioning mechanism. LibHotSwap can be built into a larger
+system with goals to become specialized or optimized, via the recognition of
 missing edge-cases with auto updates to it's own code.
 
 LibHotSwap can also be used in the testing of other modules by means of mocking
-function behaviour of system. Complex functions can temporarily be overwritten
-or whole modules (or single functions) can have functions injected with logging 
-information. 
+dependencies and function behaviour of the system. Complex functions can
+be temporarily overwritten or whole modules (or even single function clauses)
+can be injected with logging information.
 
 Modules can even take on dynamic natures, with exports being added or removed
-during runtime. Think duck-typing where templates can inject functionality on 
+during runtime. Think duck-typing where templates can inject functionality on
 modules for compatibility purposes.
 
 **NOTE:** LibHotSwap is currently being developed for use in an event processing
@@ -21,16 +21,16 @@ optimize it's unifying routing function based on frequency of events and the
 fluctuation of the user's event-subscription model. Due to this, it maintains
 some specialization.
 
-**WARNING:** This library is not being used in production presently. Be very 
-careful in considering its use for production purposes. We have not taken the 
+**WARNING:** This library is not being used in production presently. Be very
+careful in considering its use for production purposes. We have not taken the
 time to battle test this nor investigate ease-of-debugging mechanisms yet.
 
 ## How to Use LibHotSwap ##
 
-LibHotSwap provides wrappers around Erlang's introspection and compilation 
-mechanisms. This is for the purpose of seeing internal representations to 
-modify them before possibly injecting back in. As such, most of LibHotSwap 
-only works on modules which have been compiled with the `debug_info` option 
+LibHotSwap provides wrappers around Erlang's introspection and compilation
+mechanisms. This is for the purpose of seeing internal representations to
+modify them before possibly injecting back in. As such, most of LibHotSwap
+only works on modules which have been compiled with the `debug_info` option
 turned on.
 
 ```erlang
@@ -72,10 +72,11 @@ test
 
 However, if you performed two modifications to the same module, only the final
 one would take, as the Erlang Code server reads the module's object code from
-the path each time LibHotSwap updates the one in memory. LibHotSwap therefore
-bundles a server which wraps the code server with an on-disk cache for saving
-multiple versions of modifications. This even gives us version rollback
-capability:
+the path each time LibHotSwap updates the one in memory. Note the version number
+returned by the `inject_in_function/3` and `rewrite/2` calls were both `43`.
+LibHotSwap therefore bundles a server which wraps the code server with an
+on-disk cache for saving multiple versions of modifications. This even gives us
+version rollback capability on a module level granularity:
 
 ```erlang
 > l(libhotswap_dummy). % Reload from disk.
@@ -102,40 +103,60 @@ ok
 >
 ```
 
-There is also a `libhotswap:rollback/2` function provided if you want to roll 
-back multiple versions. These functions will fail with an error if the 
+There is also a `libhotswap:rollback/2` function provided if you want to roll
+back multiple versions. These functions will fail with an error if the
 LibHotSwap Server is not running.
 
 Also note that LibHotSwap can do this to the standard library or any other
 loaded Erlang module. We do not allow this by default (for security sake), but
 it can be configured via the application settings before starting the server.
+Here is an example:
+
+```erlang
+> application:load( libhotswap ).
+{module,libhotswap}
+> application:set_env( libhotswap, override_sticky, true ).
+ok
+> libhotswap:start_server().
+ok
+> io:nl().
+
+ok
+> libhotswap:rewrite( {io,nl,0}, fun() -> ok end ).
+{ok,100039025425407111740141846415759136501}
+> io:nl().
+ok
+```
+
+Obviously, this is dangerous and should be used sparingly.
+
 
 ## Integrating LibHotSwap Into an Application ##
 
 LibHotSwap supports [rebar](https://github.com/rebar/rebar). Just import as a
 dependency and libhotswap can be used directly as shown above or in the API.
 
-Note some of the features require the LibHotSwap Code Server to be running on 
+Note some of the features require the LibHotSwap Code Server to be running on
 the node. For example, module version rollbacks and caching changes. Presently,
 without the server running you can only inject/overwrite once to a module. To
-perform multiple edits, the server needs to have a physical save of each 
+perform multiple edits, the server needs to have a physical save of each
 successive version.
 
 To turn the server on, and add it to your OTP Application, you can add
 `libhotswap_server:start_link/2` to your supervisory tree. Or somewhere in your
-application's initialization you can call `application:start(libhotswap)` or 
+application's initialization you can call `application:start(libhotswap)` or
 `libhotswap:start_server()`.
 
 ## A Note About Recursive Functions ##
 
-LibHotSwap can help you up to a point. But if the function which is getting 
+LibHotSwap can help you up to a point. But if the function which is getting
 replaced is recursive and it's called like so:
 
 ```erlang
 f( ... ) -> ... , f( ... ).
 ```
 
-i.e. standard tail recursion with just the function name; LibHotSwap will not 
+i.e. standard tail recursion with just the function name; LibHotSwap will not
 be able to patch any running instances of this function. You would need to stop
 them manually, and update it to:
 
@@ -144,10 +165,29 @@ f( ... ) -> ... , ?MODULE:f( ... ).
 ```
 
 before LibHotSwap will seamlessly update recursively running functions. Note,
-the Erlang VM only keeps two versions of a module in memory. If you disregard 
+the Erlang VM only keeps two versions of a module in memory. If you disregard
 the above advice, and rewrite the module twice, the third version will knock
 out any processes running the oldest version to assuming the processes are
 orphaned.
+
+Also note, LibHotSwap currently explicitly forbids directly injecting recursive,
+named-anonymous, and functions which utilize names from the environment (i.e.
+a closure):
+
+```erlang
+> X = 2.
+2
+> Extern = fun () -> X end. % A closure over X.
+#Fun<erl_eval.20.90072148>
+> libhotswap:rewrite( MFA, Extern ).
+** exception error: no match of righ hand side value {error, outofscope}
+     in function libhotswap:rewrite/2 (src/libhotswap.erl, line 161)
+```
+
+This is to protect against unintended side effects from high-jacked environment
+names. It is true that in some cases it is possible for LibHotSwap to coerce
+this, but for the time-being this has not been implemented.
+
 
 ## License ##
 

@@ -19,12 +19,12 @@
 %% ===========================================================================
 
 %% @doc Start the LibHotSwap Server on the local node as a separate application
-%%   tree. To configure the server before start up, please modify the 
+%%   tree. To configure the server before start up, please modify the
 %%   application environment via application:set_env/3,4. For the application's
 %%   configurations, see src/libhotswap.app.src for details.
 %% @end
 -spec start_server() -> ok | {error, term()}.
-start_server() -> 
+start_server() ->
     application:start(libhotswap).
 
 %% @doc Stop the LibHotSwap Server. Based on the configurations on startup, this
@@ -43,7 +43,9 @@ stop_server() ->
 check_server() ->
     libhotswap_server:local_instance().
 
-%% @doc Rollback the module one change and purge the current state.
+%% @doc Rollback the module one change and purge the current state. The server
+%%   removes this version from the on-disk cache.
+%% @end
 -spec rollback( module() ) -> ok | {error, term()}.
 rollback( Module ) ->
     libhotswap_server:rollback( Module, 1 ).
@@ -62,9 +64,9 @@ rollback( Module, N ) ->
 
 %% @doc Get the VSN of a loaded module.
 -spec vsn( atom() ) -> {ok, pos_integer()} | {error, term()}.
-vsn( ModuleName ) when is_atom( ModuleName ) -> 
+vsn( ModuleName ) when is_atom( ModuleName ) ->
     MI = erlang:apply( ModuleName, module_info, [] ),
-    case 
+    case
         catch [ VS || {attributes, As} <- MI, {vsn,[VS]} <- As ]
     of
         [VS] when is_integer(VS) -> {ok, VS};
@@ -74,11 +76,11 @@ vsn( ModuleName ) when is_atom( ModuleName ) ->
 
 %% @doc Get the list of exports for a provided module.
 -spec exports( atom() ) -> {ok, [mfa()]} | {error, term()}.
-exports( ModuleName ) when is_atom( ModuleName )  ->  
-    case 
+exports( ModuleName ) when is_atom( ModuleName )  ->
+    case
         erlang:apply( ModuleName, module_info, [ exports ] )
     of
-        Es when is_list( Es ) -> 
+        Es when is_list( Es ) ->
             MFA_Es = lists:map( fun({F,A})-> {ModuleName,F,A} end, Es ),
             {ok, MFA_Es};
         _                     -> {error, badarg}
@@ -99,14 +101,14 @@ exports( ModuleName ) when is_atom( ModuleName )  ->
                           'missing'   | % mfa() could not be found.
                           'outofscope'| % fun() has a non-empty reference env.
                           'named'     . % fun() is named, which is outofscope.
-get_code( Term ) -> 
+get_code( Term ) ->
     case get_ast( Term ) of
         {ok, AST} -> libhotswap_util:ast_to_code( AST );
         Error     -> Error
-    end.        
+    end.
 
 %% @doc Get the Abstract Syntax Tree from a loaded BEAM module. This is useful
-%%   if you want to do more advanced analysis before a `rewrite/2', e.g. 
+%%   if you want to do more advanced analysis before a `rewrite/2', e.g.
 %%   reordering case statements.
 %% @end
 -spec get_ast( mfa() | term() ) -> {ok, ast()} | {error, Error}
@@ -114,11 +116,11 @@ get_code( Term ) ->
                           'missing'   | % mfa() could not be found.
                           'outofscope'| % fun() has a non-empty reference env.
                           'named'     . % fun() is named, which is outofscope.
-get_ast( {Module, _, _} = MFA ) -> 
+get_ast( {Module, _, _} = MFA ) ->
     case libhotswap_util:get_ast( Module ) of
         {ok, AST} -> libhotswap_util:ast_by_mfa( AST, MFA );
         Error -> Error
-    end; 
+    end;
 get_ast( ErlOrCode ) -> libhotswap_util:funcs( ErlOrCode ).
 
 
@@ -127,7 +129,7 @@ get_ast( ErlOrCode ) -> libhotswap_util:funcs( ErlOrCode ).
 %% ===========================================================================
 
 %% @doc Add a new function to a module and load it back into memory.
--spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}. 
+-spec add_export( mfa(), func() ) -> {ok, vsn()} | {error, term()}.
 add_export( {Module,Fun,Arity}, Func ) ->
     {ok, AST} = libhotswap_util:funcs( Func ),
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
@@ -141,8 +143,8 @@ add_export( {Module,Fun,Arity}, Func ) ->
 %%   only makes it unexported, it will also delete the function code.
 %% @end
 -spec remove_export( mfa() ) -> {ok, vsn()} | {error, Error}
-            when Error :: badarg | badfile | native_code | nofile | 
-                          not_purged | novsn | on_load | sticky_directory. 
+            when Error :: badarg | badfile | native_code | nofile |
+                          not_purged | novsn | on_load | sticky_directory.
 remove_export( {Module,F,A} ) ->
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [Ex|Btm]} = lists:splitwith( find_attr(F,A), ModuleAST ),
@@ -152,12 +154,12 @@ remove_export( {Module,F,A} ) ->
     NewModule = Top++[{attribute,Line,export,CleanExs}]++BTop++Bbm,
     reload( Module, NewModule ).
 
-%% @doc Given a func and an MFA, overwrite the MFA with the provided Func.
+%% @doc Given a Func and an MFA, overwrite the MFA with the provided Func.
 %%   This will completely overload the function and reload the module. Be
 %%   very careful doing this to stdlib functions.
 %% @end
 -spec rewrite( mfa(), func() ) -> {ok, vsn()} | {error, term()}.
-rewrite( {Module,F,A}, Func ) -> 
+rewrite( {Module,F,A}, Func ) ->
     {ok, FunctnAST} = libhotswap_util:funcs( Func ),
     {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
     {Top, [_F|Bbm]} = lists:splitwith( find_func(F,A), ModuleAST ),
@@ -169,20 +171,20 @@ rewrite( {Module,F,A}, Func ) ->
 %% Specialized functionality
 %% ===========================================================================
 
-%% @doc 
+%% @doc
 %%   NOTE: This is very specialized functionality for inclusion in the EMP
-%%   application. 
+%%   application.
 %%
-%%   Given a reference MFA, add the body of Func to it according to a
-%%   provided pattern. Namely, how far down the expression list for which 
+%%   Given a reference MFA, add the body of a Func to it according to a
+%%   provided pattern. Namely, how far down the expression list for which
 %%   of the functions clauses. For example; if the pattern was: `{2, all}'
 %%   the result would be to add the body of Func after the second line of
 %%   all clauses in MFA. If the pattern is `` {'end', [3,5]} '', it will add the
-%%   body of Func at the end of the third and fifth clauses of MFA.
+%%   body of Func at the end of the third and fifth clauses of the MFA.
 %% @end
--spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} | 
+-spec inject_in_function( mfa(), func(), pattern() ) -> {ok, vsn()} |
                                                         {error, term()}.
-inject_in_function( {Module,Fun,Arity}, Func, Pattern ) -> 
+inject_in_function( {Module,Fun,Arity}, Func, Pattern ) ->
     {ok, FuncAST} = libhotswap_util:funcs( Func ),
     case verify_func_arity( 0, FuncAST ) of
         error -> {error,badarity};
@@ -192,7 +194,7 @@ inject_in_function( {Module,Fun,Arity}, Func, Pattern ) ->
             Splitter = find_func(Fun,Arity),
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case pattern_inject( FunAST, BodyAST, Pattern ) of
-                {ok, NewFunAST} -> 
+                {ok, NewFunAST} ->
                     reload( Module, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
@@ -204,22 +206,22 @@ inject_in_function( {Module,Fun,Arity}, Func, Pattern ) ->
 %%
 %%   Given an MFA, and a Func of the same arity, insert the Func's clauses at
 %%   the index position given by the Order. Note this may cause unreachable
-%%   code if done incorrectly, such as inserting a match-all case at the 
+%%   code if done incorrectly, such as inserting a wildcard case at the
 %%   beginning of the clause structure.
 %% @end
--spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} | 
+-spec add_new_clause( mfa(), func(), non_neg_integer() ) -> {ok, vsn()} |
                                                             {error, term()}.
-add_new_clause( {Module,Fun,Arity}, Func, Order ) -> 
+add_new_clause( {Module,Fun,Arity}, Func, Order ) ->
     {ok, FuncAST} = libhotswap_util:funcs( Func ),
     case verify_func_arity( Arity, FuncAST ) of
         error -> {error,badarity};
-        ok    -> 
+        ok    ->
             {ok, Clauses}   = get_ast_body_clauses( FuncAST ),
             {ok, ModuleAST} = libhotswap_util:get_ast( Module ),
             Splitter = find_func(Fun,Arity),
             {Top, [FunAST|Btm]} = lists:splitwith( Splitter, ModuleAST ),
             case order_inject( FunAST, Clauses, Order ) of
-                {ok, NewFunAST} -> 
+                {ok, NewFunAST} ->
                     reload( Module, Top++[NewFunAST|Btm] );
                 Error -> Error
             end
@@ -227,16 +229,15 @@ add_new_clause( {Module,Fun,Arity}, Func, Order ) ->
 
 
 %% ===========================================================================
-%% Private functionality 
+%% Private functionality
 %% ===========================================================================
 
 %% @hidden
-%% @doc Load a new version of a module (MFA) given a new AST. This might be
-%%   ripe for improvement (such as with an ondisk cache of all updated 
-%%   versions for easy rollback or analysis.
+%% @doc Load a new version of a module (MFA) given a new AST using either the
+%%   LibHotSwap server or the Erlang Code server directly.
 %% @end
 -spec reload( module(), ast() ) -> {ok, vsn()} | {error, atom()}.
-reload( Module, AST ) -> 
+reload( Module, AST ) ->
     {ok, NewBinary} = libhotswap_util:ast_to_beam( AST ),
     Fun = case libhotswap_server:local_instance() of
         {ok, _Pid} -> fun libhotswap_server:hotswap/2;
@@ -245,11 +246,11 @@ reload( Module, AST ) ->
    case Fun( Module, NewBinary ) of
       ok -> vsn( Module );
       Error -> Error
-    end. 
+    end.
 
 %% @hidden
-%% @doc Returns an AST splitter which attempts to find the exported MFA. 
-find_attr( Fun, Attr ) -> 
+%% @doc Returns an AST splitter which attempts to find the exported MFA.
+find_attr( Fun, Attr ) ->
     fun( {attribute, _Line, export, Exs} ) -> not lists:member({Fun,Attr}, Exs);
        ( _ ) -> true
     end.
@@ -262,12 +263,12 @@ find_func( Fun, Attr ) ->
     end.
 
 %% @hidden
-%% @doc Break off the {eof,Line} token and add this to the AST list to the end
-%%   correctly (like when we add functions to a module).
+%% @doc Break off the {eof,Line} token and merge the ASTs correctly (like when
+%%   we add functions to a module).
 %% @end
 add_before_eof( ModuleAST, ASTs ) ->
     {Front,EOF} = lists:splitwith( fun({eof,_})->false;
-                                      (_)->true 
+                                      (_)->true
                                    end , ModuleAST ),
     Front++ASTs++EOF.
 
@@ -285,9 +286,9 @@ generate_function_from_func( F, A, {function,Line,_F,A,Clauses} ) ->
     {ok, {function,Line,F,A,Clauses}};
 generate_function_from_func( _, _, _ ) -> {error, badarg}.
 
-%% @hidden 
-%% @doc Check the provided func to see if it is indeed the correct arity. 
-verify_func_arity( Arity, {'fun',_,{clauses,[{clause,_,Args,_,_}|_]}} ) 
+%% @hidden
+%% @doc Check the provided func to see if it is indeed the correct arity.
+verify_func_arity( Arity, {'fun',_,{clauses,[{clause,_,Args,_,_}|_]}} )
                          when length(Args)=:=Arity -> ok;
 verify_func_arity( Arity, {function,_,_,Arity,_} ) -> ok;
 verify_func_arity( _, _ ) -> error.
@@ -297,7 +298,7 @@ verify_func_arity( _, _ ) -> error.
 %%   func's functionality into another function. Think aspect based programming.
 %% @end
 get_ast_body_exprs( {'fun',_,{clauses,[Clause]}} ) -> get_clause_exprs(Clause);
-get_ast_body_exprs( {'function',_,_,0,[Clause]} )  -> get_clause_exprs(Clause); 
+get_ast_body_exprs( {'function',_,_,0,[Clause]} )  -> get_clause_exprs(Clause);
 get_ast_body_exprs( _ ) -> {error, badarg}.
 get_clause_exprs( {clause,_Line,[],[],Exprs} ) -> {ok, Exprs};
 get_clause_exprs( {clause,_Line,[],Exprs} )   -> {ok, Exprs};
@@ -312,7 +313,7 @@ get_ast_body_clauses( {'function',_,_,_,Clauses} )  -> {ok, Clauses};
 get_ast_body_clauses( _ ) -> {error, badarg}.
 
 %% @hidden
-%% @doc Given a function AST and a set of AST expressions, inject them into the 
+%% @doc Given a function AST and a set of AST expressions, inject them into the
 %%   the function given a pattern.
 %% @end
 pattern_inject( FunctionAST, Exprs, {Index,WhichClause} ) ->
@@ -320,7 +321,7 @@ pattern_inject( FunctionAST, Exprs, {Index,WhichClause} ) ->
         {'function',Line,Name,Arity,Clauses} = FunctionAST,
         Folder = pattern_matcher( Exprs, Index, WhichClause ),
         {_,RNewClauses} = lists:foldl( Folder, {0, []}, Clauses ),
-        NewClauses = lists:reverse( RNewClauses ), 
+        NewClauses = lists:reverse( RNewClauses ),
         NewFunctionAST = {'function',Line,Name,Arity,NewClauses},
         {ok, NewFunctionAST}
     catch _:Reason -> {error, Reason} end.
@@ -342,12 +343,12 @@ pattern_matcher( Exprs, Index, WhichClause ) ->
     end.
 order_injector( Things, 'end' ) -> fun( List ) -> List++Things end;
 order_injector( Things, Index ) ->
-    fun( List ) -> 
+    fun( List ) ->
             {Front,Back} = lists:split( Index, List ),
             Front++Things++Back
     end.
 
-%% @hidden 
+%% @hidden
 %% @doc Given a function AST and a set of AST clauses, inject them via the index
 %%   provided by the Order.
 %% @end

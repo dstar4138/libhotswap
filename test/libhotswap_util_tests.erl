@@ -3,14 +3,14 @@
 %%%
 -module( libhotswap_util_tests ).
 -include_lib("eunit/include/eunit.hrl").
--define(SETUP( Fs ), {setup, fun() -> [] end, fun(_) -> [] end, Fs}). 
+-define(SETUP( Fs ), {setup, fun() -> [] end, fun(_) -> [] end, Fs}).
 
 %% ===========================================================================
 %% Test Descriptions
 %% ===========================================================================
 check_unsticky2_test_() ->
     {"Verify sticky directory checking and manipulation.",
-        ?SETUP({inparallel, 
+        ?SETUP({inparallel,
                 [ fun validate_stdlibs__check_unsticky2/0,
                   fun validate_locallibs__check_unsticky2/0
                 ]})
@@ -24,7 +24,7 @@ get_ast1_test_() ->
                 ]})
     }.
 
-%% These fail due to EUnit's parse_transformation of function clauses. 
+%% These fail due to EUnit's parse_transformation of function clauses.
 %fun_to_ast1_test_() ->
 %    {"Verify abstract syntax tree construction for anonymous and named "
 %     "functions.",
@@ -34,17 +34,17 @@ get_ast1_test_() ->
 %                  fun validate_outOfScope__fun_to_ast1/0,
 %                  fun validate_namedFunction__fun_to_ast1/0
 %                ]})
-%    }. 
+%    }.
 
 code_to_ast1_test_() ->
     {"Verify abstract syntax tree construction for Erlang Code as strings.",
         ?SETUP({inparallel,
                 [ fun validate_terms__code_to_ast1/0,
                   fun validate_branches__code_to_ast1/0,
-                  fun validate_anonFun__code_to_ast1/0, 
+                  fun validate_anonFun__code_to_ast1/0,
                   fun validate_externalFun__code_to_ast1/0
                 ]})
-    }. 
+    }.
 
 %% These fail due to EUnit's pares_transofmation of function clauses.
 funcs1_test_() ->
@@ -57,7 +57,7 @@ funcs1_test_() ->
                   fun validate_multiFuncs__funcs1/0,
                   fun validate_nonFuncs__funcs1/0
                 ]})
-    }. 
+    }.
 
 ast_to_code1_test_() ->
     {"Verify AST to Source code conversion utility functionality.",
@@ -67,7 +67,7 @@ ast_to_code1_test_() ->
                   fun validate_anonFun__ast_to_code1/0,
                   fun validate_externalFun__ast_to_code1/0
                 ]})
-    }. 
+    }.
 
 ast_by_mfa2_test_() ->
     {"Verify AST extraction from a module given an MFA and the module AST.",
@@ -75,7 +75,7 @@ ast_by_mfa2_test_() ->
                 [ fun validate_simple__ast_by_mfa2/0,
                   fun validate_missing__ast_by_mfa2/0
                 ]})
-    }. 
+    }.
 
 ast_by_mfa1_test_() ->
     {"Verify AST extraction from a module given only the MFA.",
@@ -83,14 +83,14 @@ ast_by_mfa1_test_() ->
                 [ fun validate_stdlibLookup__ast_by_mfa1/0,
                   fun validate_locallibLookup__ast_by_mfa1/0
                 ]})
-    }. 
+    }.
 
 inject_attributes2_test_() ->
     {"Verify AST attribute injection.",
         ?SETUP({inparallel,
-                [ fun validate_correctSyntax__inject_attributes2/0 
+                [ fun validate_correctSyntax__inject_attributes2/0
                 ]})
-    }. 
+    }.
 
 %% ===========================================================================
 %% Actual Tests
@@ -110,7 +110,7 @@ validate_stdlibs__check_unsticky2() ->
     ?assertEqual( false, code:is_sticky( MODULE ) ),
     ?assertEqual( ok,    code:stick_dir( DIR ) ). % Leave it like we found it.
 
-%% TEST - Validate that any local libraries (i.e. libhotswap), which are 
+%% TEST - Validate that any local libraries (i.e. libhotswap), which are
 %%         typically nonsticky. Are also subject to unstick requests.
 validate_locallibs__check_unsticky2() ->
     FUN = fun libhotswap_util:check_unsticky/2,
@@ -121,19 +121,19 @@ validate_locallibs__check_unsticky2() ->
     ?assertEqual( ok,    FUN( MODULE, true ) ),
     ?assertEqual( false, code:is_sticky( MODULE ) ).
 
-%% TEST - Verify the AST returned is describing the module requested. 
+%% TEST - Verify the AST returned is describing the module requested.
 validate_correctModule__get_ast1() ->
     FUN = fun libhotswap_util:get_ast/1,
     MODULES = [libhotswap, libhotswap_util, io, kernel, erl_syntax],
-    CHECK = fun( MOD ) -> 
+    CHECK = fun( MOD ) ->
                     case FUN( MOD ) of
                         {ok, AST} -> lists:keyfind(module,3,AST);
                         ERROR -> ERROR
-                    end        
+                    end
             end,
     [?assertMatch({attribute,_,module,MOD}, CHECK(MOD)) || MOD <- MODULES].
 
-%% TEST - Verify that any bad module input will result in an error. 
+%% TEST - Verify that any bad module input will result in an error.
 validate_badInput__get_ast1() ->
     FUN = fun libhotswap_util:get_ast/1,
     ?assertMatch( error, FUN( non_existant_module ) ).
@@ -144,16 +144,16 @@ validate_badInput__get_ast1() ->
 %validate_anonFun__fun_to_ast1() ->
 %    FUN = fun libhotswap_util:fun_to_ast/1,
 %    ANON_AST = {'fun',1,{clauses,[{clause,1,[],[],[{atom,1,'ok'}]}]}},
-%    ?assertMatch( {ok, ANON_AST}, FUN( fun() -> ok end ) ). 
+%    ?assertMatch( {ok, ANON_AST}, FUN( fun() -> ok end ) ).
 
 %% TEST - Verify external (fun m:f/a) referenced functions convert correctly.
 %validate_externalFun__fun_to_ast1() ->
 %    FUN = fun libhotswap_util:fun_to_ast/1,
 %    DUMMYFUN = fun libhotswap_dummy:test/0,
-%    DUMMYAST = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]}, 
-%    ?assertMatch( {ok, DUMMYAST}, FUN( DUMMYFUN ) ). 
+%    DUMMYAST = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]},
+%    ?assertMatch( {ok, DUMMYAST}, FUN( DUMMYFUN ) ).
 
-%% TEST - Currently a function which has values defined out of scope, 
+%% TEST - Currently a function which has values defined out of scope,
 %%        should throw an error. Once our environment replacement mechanism
 %%        is in place, it should work fine.
 %validate_outOfScope__fun_to_ast1() ->
@@ -164,14 +164,14 @@ validate_badInput__get_ast1() ->
 
 %% TEST - We also currently can't handle named functions as they can have
 %%        unintended side effects and we don't quite know how we want their
-%%        injection to work in the long run. 
+%%        injection to work in the long run.
 %validate_namedFunction__fun_to_ast1() ->
 %    FUN = fun libhotswap_util:fun_to_ast/1,
 %    DummyFun = fun _DummyFun() -> ok end,
 %    ?assertMatch( {error, named}, FUN( DummyFun ) ).
 
 
-%% TEST - Turn standard terms into abstract syntax trees. 
+%% TEST - Turn standard terms into abstract syntax trees.
 validate_terms__code_to_ast1() ->
     FUN = fun libhotswap_util:code_to_ast/1,
     ?assertMatch( {ok, [{var,1,'_'}]}, FUN( "_." ) ),
@@ -198,8 +198,8 @@ validate_branches__code_to_ast1() ->
     ?assertMatch( {ok,[{'if',1,[{clause,1,[],[[{atom,1,true}]],[{atom,1,ok}]}]}]},
                   FUN( "if true -> ok end." ) ).
 
-%% TEST - Turn Anonymous into ASTs. 
-validate_anonFun__code_to_ast1() -> 
+%% TEST - Turn Anonymous into ASTs.
+validate_anonFun__code_to_ast1() ->
     FUN = fun libhotswap_util:code_to_ast/1,
     ?assertMatch( {ok,[{'fun',1,{clauses,[{clause,1,[],[],[{atom,1,ok}]}]}}]},
                   FUN( "fun() -> ok end." ) ),
@@ -226,7 +226,7 @@ validate_stringFuncs__funcs1() ->
 
 %% TEST - Absract Syntax Trees to their function values. Namely, make sure valid
 %%        ASTs are validated as funcs.
-validate_astFuncs__funcs1() -> 
+validate_astFuncs__funcs1() ->
     FUN = fun libhotswap_util:funcs/1,
     Ext = {'fun',1,{function,{atom,1,libhotswap_dummy},
                                           {atom,1,test},
@@ -235,8 +235,8 @@ validate_astFuncs__funcs1() ->
     ?assertMatch( {ok, Ext}, FUN( Ext ) ),
     ?assertMatch( {ok, Anon}, FUN( Anon ) ),
     % Make sure expressions get stripped.
-    ?assertMatch( {ok, Ext}, FUN( [Ext] ) ), 
-    ?assertMatch( {ok, Anon}, FUN( [Anon] ) ), 
+    ?assertMatch( {ok, Ext}, FUN( [Ext] ) ),
+    ?assertMatch( {ok, Anon}, FUN( [Anon] ) ),
     ?assertMatch( {error,badarg}, FUN( [{integer,1,1}] ) ).
 
 %% TEST - Validate that Erlang functions and funs are converted into their func
@@ -245,16 +245,16 @@ validate_astFuncs__funcs1() ->
 %    FUN = fun libhotswap_util:fun_to_ast/1,
 %    ANON = fun() -> ok end,
 %    ANON_AST = {'fun',1,{clauses,[{clause,1,[],[],[{atom,1,'ok'}]}]}},
-%    ?assertMatch( {ok, ANON_AST}, FUN( ANON ) ). 
+%    ?assertMatch( {ok, ANON_AST}, FUN( ANON ) ).
 
 %% TEST - Validate that a 'fun M:F/A' form is converted to a func correctly.
 %validate_mfaFuncs__funcs1() ->
 %    FUN = fun libhotswap_util:funcs/1,
 %    DUMMYFUN = fun libhotswap_dummy:test/0,
-%    DUMMYAST = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]}, 
-%    ?assertMatch( {ok, DUMMYAST}, FUN( DUMMYFUN ) ). 
+%    DUMMYAST = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]},
+%    ?assertMatch( {ok, DUMMYAST}, FUN( DUMMYFUN ) ).
 
-%% TEST - If there are multiple expressions in the string, this should cause a 
+%% TEST - If there are multiple expressions in the string, this should cause a
 %%        error (it can't guess which one you meant).
 validate_multiFuncs__funcs1() ->
     FUN = fun libhotswap_util:funcs/1,
@@ -287,7 +287,7 @@ validate_terms__ast_to_code1() ->
     ?assertMatch( {ok, "<<>>"}, FUN( [{bin,1,[]}] ) ),
     ?assertMatch( {ok, "<<1>>"}, FUN( [{bin,1,[{bin_element,1,{integer,1,1},default,default}]}] ) ).
 
-%% TEST - Check to make sure the branches get converted back correctly. 
+%% TEST - Check to make sure the branches get converted back correctly.
 validate_branches__ast_to_code1() ->
     FUN = fun libhotswap_util:ast_to_code/1,
     ?assertMatch({ok,"case ok of _ when is_atom(ok) -> ok end"},
@@ -295,11 +295,11 @@ validate_branches__ast_to_code1() ->
                                 [{clause,1,[{var,1,'_'}],
                                 [[{call,1,{atom,1,is_atom},[{atom,1,ok}]}]],
                                 [{atom,1,ok}]}]}] ) ),
-    ?assertMatch( {ok,"if true -> ok end"}, 
+    ?assertMatch( {ok,"if true -> ok end"},
                   FUN( [{'if',1,[{clause,1,[],[[{atom,1,true}]],
                                                [{atom,1,ok}]}]}] ) ).
 
-%% TEST - Check to make sure the anonymous functions convert back to code 
+%% TEST - Check to make sure the anonymous functions convert back to code
 %%      corretly.
 validate_anonFun__ast_to_code1() ->
     FUN = fun libhotswap_util:ast_to_code/1,
@@ -318,8 +318,8 @@ validate_externalFun__ast_to_code1() ->
                                           {atom,1,test},
                                           {integer,1,0}}}] ) ).
 
-%% TEST - Simple function AST extraction from a module AST. 
-validate_simple__ast_by_mfa2() -> 
+%% TEST - Simple function AST extraction from a module AST.
+validate_simple__ast_by_mfa2() ->
     FUN = fun libhotswap_util:ast_by_mfa/2,
     {ok,AST} = libhotswap_util:get_ast( libhotswap_dummy ),
     TEST0 = {function,4,test,0,[{clause,4,[],[],[{atom,4,ok}]}]},

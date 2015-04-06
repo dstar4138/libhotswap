@@ -108,7 +108,9 @@ purge() ->
 %%%===================================================================
 
 %% @private
-%% @doc Load up the
+%% @doc Load up the application environment and use it to initialize the
+%%   server state.
+%% @end
 init([]) ->
     InitState = build_init_env(),
     validate_state( InitState ).
@@ -192,7 +194,7 @@ verify_cache_dir( Dir ) ->
 %% ===================================================================
 
 %% @hidden
-%% @doc On stop, we will return we are shutting down, but before so: we may
+%% @doc On stop, we will return that we are shutting down, but before so: we may
 %%   need to remove all the cached files, and revert all modules to their
 %%   original state.
 %% @end
@@ -220,9 +222,9 @@ handle_call_get_object_code( Mod, State=#state{ cache_dir=CD,
     end.
 
 %% @hidden
-%% @doc Perform a hotswap given a module and it's new binary. This will create
-%%   a new cached file, and remove any that fall off the end of the rollback
-%%   length.
+%% @doc Handle a hotswap call given a module and it's new binary. This will
+%%   create a new cached file, and remove any that fall off the end of the
+%%   rollback length.
 %% @end
 handle_call_hotswap( Module, Binary, State=#state{cache_dir=CD,
                                                   module_rollback_map=Map} ) ->
@@ -233,7 +235,7 @@ handle_call_hotswap( Module, Binary, State=#state{cache_dir=CD,
     {reply, Return, NewState}.
 
 %% @hidden
-%% @doc Perform a reload of all modules in the cache to their "newest"
+%% @doc Handle a reload of all modules in the cache to their "newest"
 %%   versions. This is performed on startup by default, unless turned off.
 %% @end
 handle_call_hotswap_all( State ) ->

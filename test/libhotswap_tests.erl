@@ -3,7 +3,7 @@
 %%%
 -module( libhotswap_tests ).
 -include_lib("eunit/include/eunit.hrl").
--define(SETUP( Fs ), {setup, fun() -> [] end, fun(_) -> [] end, Fs}). 
+-define(SETUP( Fs ), {setup, fun() -> [] end, fun(_) -> [] end, Fs}).
 -define(SETUP_WITH_SERVER( Fs ), {setup, fun start_server/0, fun stop_server/1, Fs}).
 
 % Override cache directory location for testing.
@@ -21,14 +21,14 @@
 
 check_vsn1_test_() ->
     {"Test getting the vsn number of a module.",
-        ?SETUP({inparallel, 
+        ?SETUP({inparallel,
                 [ fun validate_dummy__vsn1/0
                 ]})
     }.
 
 check_exports1_test_() ->
     {"Test getting the exports of a module as MFAs.",
-        ?SETUP({inparallel, 
+        ?SETUP({inparallel,
                 [ fun validate_dummy__exports1/0
                 ]})
     }.
@@ -49,7 +49,7 @@ check_add_export2_test_() ->
     {"Testing export injection works.",
         [?SETUP({inorder,[ fun validate_dummy__add_export2/0,
                            fun validate_dummyMulti__add_export2/0 ]} ),
-         ?SETUP_WITH_SERVER(fun validate_withServer__add_export2/1) 
+         ?SETUP_WITH_SERVER(fun validate_withServer__add_export2/1)
         ]
     }.
 
@@ -57,7 +57,7 @@ check_remove_export1_test_() ->
     {"Testing removal of exports.",
         [?SETUP({inorder,[ fun validate_dummy__remove_export1/0,
                            fun validate_dummyMulti__remove_export1/0 ]} ),
-         ?SETUP_WITH_SERVER(fun validate_withServer__remove_export1/1) 
+         ?SETUP_WITH_SERVER(fun validate_withServer__remove_export1/1)
         ]
     }.
 
@@ -65,7 +65,7 @@ check_rewrite2_test_() ->
     {"Test brute force rewrite of exported functions in modules.",
         [?SETUP({inorder,[ fun validate_dummy__rewrite2/0,
                            fun validate_dummyMulti__rewrite2/0 ]} ),
-         ?SETUP_WITH_SERVER(fun validate_withServer__rewrite2/1) 
+         ?SETUP_WITH_SERVER(fun validate_withServer__rewrite2/1)
         ]
     }.
 
@@ -73,21 +73,21 @@ check_inject_in_function3_test_() ->
     {"Test arbitrary code injection, into function clauses.",
         [?SETUP({inorder,[ fun validate_dummy__inject_in_function3/0,
                            fun validate_dummyMulti__inject_in_function3/0 ]} ),
-         ?SETUP_WITH_SERVER(fun validate_withServer__inject_in_function3/1) 
+         ?SETUP_WITH_SERVER(fun validate_withServer__inject_in_function3/1)
         ]
     }.
 
-check_add_new_clause3_test_() -> 
+check_add_new_clause3_test_() ->
     {"Test function clause injection.",
         [?SETUP({inorder,[ fun validate_dummy__add_new_clause3/0,
                            fun validate_dummyMulti__add_new_clause3/0 ]} ),
-         ?SETUP_WITH_SERVER(fun validate_withServer__add_new_clause3/1) 
+         ?SETUP_WITH_SERVER(fun validate_withServer__add_new_clause3/1)
         ]
     }.
 
 check_rollback2_test_() ->
     {"Test code server rollback functionality.",
-         ?SETUP_WITH_SERVER(fun validate_dummy__rollback2/1) 
+         ?SETUP_WITH_SERVER(fun validate_dummy__rollback2/1)
     }.
 
 %% ===========================================================================
@@ -108,18 +108,18 @@ validate_dummy__exports1() ->
     MOD = libhotswap_dummy,
     ?assertMatch( {ok, ?DUMMY_MFAS}, FUN( MOD ) ).
 
-%% TEST - Make sure we can get at the server if it's running. 
+%% TEST - Make sure we can get at the server if it's running.
 validate_positive__check_server0( Pid ) ->
     FUN = fun libhotswap:check_server/0,
     [ ?_assertMatch( Pid, whereis( libhotswap_server )),
       ?_assertMatch( {ok, Pid}, FUN() ) ].
 
-%% TEST - This checks to makes sure we correctly return a false when the 
+%% TEST - This checks to makes sure we correctly return a false when the
 %%        server is not running.
 validate_negative__check_server0() ->
     FUN = fun libhotswap:check_server/0,
     ?assertMatch( undefined, whereis(libhotswap_server) ),
-    ?assertMatch( false, FUN() ). 
+    ?assertMatch( false, FUN() ).
 
 %% TEST - Add another export to a module without the libhotswap server wrapper
 %%        in place.
@@ -135,7 +135,7 @@ validate_dummy__add_export2() ->
     ?assertMatch( ok, MOD:NEW() ),
     reset( MOD ).
 
-%% TEST - Validate that without the server, we cannot keep more than one 
+%% TEST - Validate that without the server, we cannot keep more than one
 %%        injection at a time.
 validate_dummyMulti__add_export2() ->
     FUN = fun libhotswap:add_export/2,
@@ -157,7 +157,7 @@ validate_withServer__add_export2( _Pid ) ->
     MFA1 = {MOD, alt1, 0},
     MFA2 = {MOD, alt2, 0},
     TST = fun MOD:test/0,
-    AFTER1 = [MFA1|?DUMMY_MFAS], 
+    AFTER1 = [MFA1|?DUMMY_MFAS],
     AFTER2 = [MFA1,MFA2|?DUMMY_MFAS],
     [ ?_assertMatch( {ok, _}, FUN( MFA1, TST ) ),
       ?_assertMatch( {ok, AFTER1}, libhotswap:exports( MOD ) ),
@@ -176,7 +176,7 @@ validate_dummy__remove_export1() ->
     ?assertMatch( {ok, AFTER}, libhotswap:exports( MOD ) ),
     reset( MOD ).
 
-%% TEST - Attempt two function removals, without the server started. Notice 
+%% TEST - Attempt two function removals, without the server started. Notice
 %%        only the last one sticks.
 validate_dummyMulti__remove_export1() ->
     FUN = fun libhotswap:remove_export/1,
@@ -298,7 +298,7 @@ validate_withServer__inject_in_function3(_Pid) ->
       ?_assertMatch( okay, MOD:alt() ),
       ?_assertMatch( 2, libhotswap_util:test_injection() ) ].
 
-%% TEST - Inject a new clause into an exported function. 
+%% TEST - Inject a new clause into an exported function.
 validate_dummy__add_new_clause3() ->
     FUN = fun libhotswap:add_new_clause/3,
     MOD = libhotswap_dummy,
@@ -337,7 +337,7 @@ validate_withServer__add_new_clause3(_Pid) ->
       ?_assertMatch( {24,42,ok}, {MOD:test(42),MOD:test(24),MOD:test(0)} ) ].
 
 %% TEST - Make sure rollbacks work as expected when the code server is running.
-validate_dummy__rollback2(_Pid) -> 
+validate_dummy__rollback2(_Pid) ->
     FUN1 = fun libhotswap:add_new_clause/3,
     FUN2 = fun libhotswap:rollback/2,
     MOD = libhotswap_dummy,
@@ -348,32 +348,32 @@ validate_dummy__rollback2(_Pid) ->
       ?_assertMatch( {ok,_}, FUN1( {MOD,test,1}, CLAUSE1, LOCATION ) ),
       ?_assertMatch( {ok,_}, FUN1( {MOD,test,1}, CLAUSE2, LOCATION ) ),
       ?_assertMatch( {24,42,ok}, {MOD:test(42),MOD:test(24),MOD:test(0)} ),
-      ?_assertMatch( ok, FUN2( MOD, 1 ) ), 
+      ?_assertMatch( ok, FUN2( MOD, 1 ) ),
       ?_assertMatch( {24,ok,ok}, {MOD:test(42),MOD:test(24),MOD:test(0)} ),
       ?_assertMatch( {ok,_}, FUN1( {MOD,test,1}, CLAUSE2, LOCATION ) ),
-      ?_assertMatch( ok, FUN2( MOD, 2 ) ), 
+      ?_assertMatch( ok, FUN2( MOD, 2 ) ),
       ?_assertMatch( {ok,ok,ok}, {MOD:test(42),MOD:test(24),MOD:test(0)} )
     ].
- 
+
 %% ===========================================================================
 %% Server Setup
 %% ===========================================================================
 
-% The server should start correctly at the beginning of each test. The only 
+% The server should start correctly at the beginning of each test. The only
 % time when this function should return an error is when the server is already
 % up.
 start_server() ->
-    application:set_env(libhotswap, cache_dir, ?TESTING_CACHE_DIR), 
+    application:set_env(libhotswap, cache_dir, ?TESTING_CACHE_DIR),
     {ok,Pid} = libhotswap_server:start_link(),
     Pid.
 
 % The server should also stop correctly at the ending of each test. We ignore
 % the application heirarchy and assume OTP can handle itself.
-stop_server(_) -> 
+stop_server(_) ->
     ok = libhotswap_server:purge(),
     ok = libhotswap_server:stop().
 
-% Essentially the same as c:l/1. Will purge whatever the code store has and 
+% Essentially the same as c:l/1. Will purge whatever the code store has and
 % reset it with the module from the Path.
 reset( Module ) ->
     code:purge( Module ),

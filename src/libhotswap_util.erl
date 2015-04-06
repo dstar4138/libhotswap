@@ -1,15 +1,15 @@
 %%% libhotswap - Utility Module
 %%%
 %%% Deterministic utility functionality for type conversions and the parsed
-%%% abstract syntax tree modification. It also handles all contact with the 
+%%% abstract syntax tree modification. It also handles all contact with the
 %%% Erlang Code Server on behalf of the primary api and the libhotswap_server,
 %%% to consolidate known functionality into a single place.
-%%% 
+%%%
 -module( libhotswap_util ).
 -include("libhotswap.hrl").
 
 % Public Exports
--export( [ check_unsticky/2, 
+-export( [ check_unsticky/2,
            get_ast/1,
            fun_to_ast/1,
            code_to_ast/1,
@@ -30,17 +30,17 @@
            test_injection/0 ] ).
 
 %% @doc Check if the module is in a sticky directory (as is the case with stdlib
-%%   modules). If it is, and you are want to force it, it'll make it unsticky 
-%%   for modification by libhotswap. This is dangerous, for very understandable 
+%%   modules). If it is, and you are want to force it, it'll make it unsticky
+%%   for modification by libhotswap. This is dangerous, for very understandable
 %%   reasons as you will have unknown nondeterministic consequences if forced.
 %% @end
 -spec check_unsticky( atom(), boolean() ) -> ok | {error, Error}
-            when Error :: unforced | non_existing | cover_compiled | preloaded. 
-check_unsticky( Module, Force ) -> 
+            when Error :: unforced | non_existing | cover_compiled | preloaded.
+check_unsticky( Module, Force ) ->
     case {code:is_sticky( Module ), Force} of
         {true, true} ->
             case code:which( Module ) of
-                Error when is_atom( Error ) -> 
+                Error when is_atom( Error ) ->
                     % Possible to not exist, be loaded by cover or preloaded.
                     % In any of these cases, we cannot unstick it's directory.
                     {error, Error};
@@ -53,7 +53,7 @@ check_unsticky( Module, Force ) ->
 %% @hidden
 %% @doc Get the BEAM binary for a module. This wraps around the code server
 %%   or the wrapper libhotswap server to get the most current binary.
-%% @end 
+%% @end
 get_beam( Module ) ->
     % If the local code server wrapper is up, use that instead of the built-in.
     Fun = case libhotswap_server:local_instance() of
@@ -61,7 +61,7 @@ get_beam( Module ) ->
             false      -> fun code:get_object_code/1
           end,
     case Fun( Module ) of
-        {Module, Binary, _Dir} -> {ok, Binary}; 
+        {Module, Binary, _Dir} -> {ok, Binary};
         error -> error
     end.
 
@@ -76,7 +76,7 @@ get_ast( Module ) ->
     end.
 
 %% @doc Convert an Erlang Function into it's AST representation. This is useful
-%%   for comparisons or to convert known Erlang source into something the 
+%%   for comparisons or to convert known Erlang source into something the
 %%   compiler can work with during injection. It will also get the ast from
 %%   loaded modules if called like:
 %%                      fun_to_ast( fun io:nl/0 ).
@@ -85,9 +85,9 @@ get_ast( Module ) ->
 %% @end
 -spec fun_to_ast( fun() ) -> {ok, pfunc()} |
                              {error, badarg | outofscope | named}.
-fun_to_ast( Fun ) -> 
+fun_to_ast( Fun ) ->
     Tree = erlang:fun_info( Fun ),
-    case 
+    case
         {proplists:get_value(type,Tree), proplists:get_value(env,Tree)}
     of
         {external, _}   -> ast_by_mfa( build_mfa_from_info(Tree) );
@@ -96,7 +96,7 @@ fun_to_ast( Fun ) ->
                 {[],_,_,Clauses} -> {ok, to_fun( Clauses )};
                 %TODO: Patch AST with values defined out of function scope.
                 % This catch includes named functions, which libhotswap
-                % hasn't taken into consideration (due to possibility of adding 
+                % hasn't taken into consideration (due to possibility of adding
                 % recursive functionality into already existing MFAs).
                 {[],_,_,_,_Name} -> {error, named};
                 _                -> {error, outofscope}
@@ -107,19 +107,19 @@ fun_to_ast( Fun ) ->
 %%   a period.
 %% @end
 -spec code_to_ast( string() ) -> {ok, ast()} | {error, term()}.
-code_to_ast( Source ) -> 
+code_to_ast( Source ) ->
     {ok, Ts, _} = erl_scan:string( Source ),
     erl_parse:parse_exprs( Ts ).
 
 %% @doc Given a Func (a fun, function ast, or source code of a function) return
-%%   the fun/function it describes. Also has the side effect of verifying the 
-%%   value passed in is a function or anonymous fun. 
+%%   the fun/function it describes. Also has the side effect of verifying the
+%%   value passed in is a function or anonymous fun.
 %% @end.
 -spec funcs( func() | mfa() ) -> {ok, pfunc()} | {error, term()}.
 funcs( Func ) when is_function( Func ) -> fun_to_ast( Func );
 funcs( Func ) ->
     case io_lib:printable_unicode_list( Func ) of
-        true  -> 
+        true  ->
             case code_to_ast( Func ) of
                 {ok, [Fun]} -> validate_fun_or_function( Fun );
                 {ok, [_|_]} -> {error, toomanyexpr};
@@ -139,8 +139,8 @@ ast_to_code( AST ) ->
     catch _:_ -> {error, badarg} end.
 
 %% @doc Given some Abstract Syntax Tree (for a whole module), get the BEAM
-%%   code for it. This is used on our reloading for calls to 
-%%   code:load_binary/3, etc. This is really for verbosity and completness 
+%%   code for it. This is used on our reloading for calls to
+%%   code:load_binary/3, etc. This is really for verbosity and completness
 %%   sake.
 %% @end
 -spec ast_to_beam( ast() ) -> {ok, binary()} | {error, atom()}.
@@ -152,20 +152,20 @@ ast_to_beam( AST ) ->
         {error,E,_W} -> {error,E}
     end.
 
-%% @doc Given some BEAM binary, get the Parsed Abstract Syntax Tree 
+%% @doc Given some BEAM binary, get the Parsed Abstract Syntax Tree
 %%   representation.
 %% @end
 beam_to_ast( Binary ) ->
     case beam_lib:chunks( Binary, [abstract_code] ) of
-        {ok, Ret} -> 
+        {ok, Ret} ->
             {_Module, Chunks} = Ret,
-            {raw_abstract_v1, AST} = proplists:get_value(abstract_code,Chunks), 
+            {raw_abstract_v1, AST} = proplists:get_value(abstract_code,Chunks),
             {ok, AST};
         _ -> {error, badarg}
     end.
 
 %% @doc Given an AST, return the AST for just the function described by the
-%%   MFA. It assumes the AST is for the correct moduel. This is used by the 
+%%   MFA. It assumes the AST is for the correct moduel. This is used by the
 %%   top-level functionality to highlight the section to get the code/ast for.
 %% @end
 -spec ast_by_mfa( ast(), mfa() ) -> {ok, pfunc()} | {error, badarg | missing}.
@@ -220,9 +220,9 @@ reload( Module, Binary, UseHardPurge ) ->
                   end,
     case PurgeResult of
         false -> {error, not_purged};
-        true  -> 
+        true  ->
             (case erlang:load_module( Module, Binary ) of
-                {module,_} -> ok; 
+                {module,_} -> ok;
                 Error      -> Error
              end)
     end.
@@ -245,7 +245,7 @@ build_mfa_from_info( Tree ) ->
 validate_fun_or_function( [MaybeFun] ) -> validate_fun_or_function( MaybeFun );
 validate_fun_or_function( {'fun',_,_}=F )          -> {ok, F};
 validate_fun_or_function( {'function',_,_,_,_}=F ) -> {ok, F};
-validate_fun_or_function( _ )                      -> {error, badarg}. 
+validate_fun_or_function( _ )                      -> {error, badarg}.
 
 %% @hidden
 %% @doc Use the syntax_tools to abstract out handmade funs.
@@ -255,7 +255,7 @@ to_fun( Clauses ) ->
 
 
 %% @private
-%% @doc Used for EUnit testing. We provide this generic function injected/0 
+%% @doc Used for EUnit testing. We provide this generic function injected/0
 %%   which we can test for after running the function which has been modified.
 %% @end
 prime_injection() -> put(injection_testing,0),ok.

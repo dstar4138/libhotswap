@@ -1,16 +1,21 @@
 {application, libhotswap,
     [
         {description, "Utility Library to aid in Self-Modifying Code."},
-        {vsn,"0.1"},
+        {vsn,"0.8.0"},
         {registered, []},
         {applications, []},
         {mod, {libhotswap_app,[]}},
+
+        % To override these values at runtime, please load the application via:
+        % application:load/2 and set the environment values via:
+        % application:set_env/3. Once started, the server does not provide a
+        % mechanism for updating these values.
         {env, [
-            % The cache directory the server should save to. This directory 
+            % The cache directory the server should save to. This directory
             % should be outside the Erlang Code Path (e.g. code:get_path/0).
             {cache_dir, "~/.libhotswap_cache"},
 
-            % Persist on shutdown, i.e. don't delete cache on libhotswap:stop/n?
+            % Persist on shutdown, i.e. don't delete cache on libhotswap:stop/n.
             {persist_on_shutdown, true},
 
             % Return all overloaded modules to their original state on
@@ -20,10 +25,10 @@
             {unload_on_shutdown, false},
 
             % Overload modules on startup, i.e. reload for each module in
-            % cache_dir on libhotswap:start_server/0?
+            % cache_dir on libhotswap:start_server/0.
             {reload_on_startup, true},
 
-            % Number of historical copies to persist for rollback? This acts
+            % Number of historical copies to persist for rollback. This acts
             % like a stack, where the bottom is trimmed as more are added,
             % and to rollback more than once has the effect of trimming the top.
             {rollback_length, 5},

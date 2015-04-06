@@ -15,7 +15,7 @@ USED_APPS=kernel stdlib erts syntax_tools compiler crypto hipe
 libhotswap:
 	$(REBAR) compile
 
-docs: 
+docs:
 	$(REBAR) doc
 
 ##TESTING
